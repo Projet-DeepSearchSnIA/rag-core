@@ -8,13 +8,23 @@ version = "0.1.0"
 description = "pipeline RAG standalone pour NOXA : extraction PDF, OCR, chunking, retrieval, génération"
 requires-python = ">=3.10"
 dependencies = [
-    "PyMuPDF",
+    "pymupdf>=1.23.0",
     "Pillow",
-    "python-doctr[torch]",
-    "pix2tex",
-    "PyYAML",
+    "python-doctr[torch]>=0.8.0",
+    "pix2tex>=0.1.0",
+    "langchain>=0.1.0",
+    "pinecone-client>=3.0.0",
+    "sentence-transformers>=2.2.0",
+    "huggingface-hub>=0.20.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
 ]
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["rag_core*"]
+where = ["src"]
