@@ -1,0 +1,27 @@
+# Extraction PDF
+pymupdf>=1.23
+Pillow>=10.0
+
+# OCR (optionnel — lourd, ~2 Go avec PyTorch)
+# python-doctr[torch]>=0.8
+# pix2tex>=0.1
+
+# Chunking
+langchain-text-splitters>=0.1
+
+# Vectorstore & reranking
+pinecone>=3.0
+
+# Génération
+huggingface-hub>=0.20
+
+# Utilitaires
+pyyaml>=6.0
+python-dotenv>=1.0
+tqdm>=4.65
+
+# Dev & tests
+# pip install -e ".[dev]"
+# ou manuellement :
+# pytest>=7.0
+# pytest-cov>=4.0

@@ -1,5 +1,3 @@
-import torch
-from doctr.models import ocr_predictor
 from PIL import Image
 import numpy as np
 from typing import List, Optional
@@ -18,8 +16,10 @@ class DocTROCRHandler:
         device: str = "cuda",
         pretrained: bool = True
     ):
+        import torch
+        from doctr.models import ocr_predictor
+
         self.device = device if torch.cuda.is_available() else "cpu"
-        print(f"chargement de docTR sur {self.device}...")
 
         try:
             self.model = ocr_predictor(
@@ -33,10 +33,8 @@ class DocTROCRHandler:
                 self.model.det_predictor.model.to(self.device)
                 self.model.reco_predictor.model.to(self.device)
 
-            print("docTR chargé")
         except Exception as e:
-            print(f"erreur chargement docTR: {e}")
-            raise
+            raise RuntimeError(f"erreur chargement docTR: {e}") from e
 
     def process_image(
         self,
