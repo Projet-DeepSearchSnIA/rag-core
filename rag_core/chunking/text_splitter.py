@@ -134,7 +134,7 @@ class SmartTextSplitter:
                     chunk_id=chunk_id,
                     content=expanded_text,
                     document_id=doc.document_id,
-                    document_name=doc.source_file,
+                    document_name=doc.filename,
                     page_numbers=[page.page_number],
                     chunk_index=chunk_counter,
                     total_chunks=0,

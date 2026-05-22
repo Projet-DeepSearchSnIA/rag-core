@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "rag-core"
@@ -10,10 +10,10 @@ requires-python = ">=3.10"
 dependencies = [
     "pymupdf>=1.23.0",
     "Pillow",
-    "python-doctr[torch]>=0.8.0",
+    "python-doctr>=0.8.0",
     "pix2tex>=0.1.0",
     "langchain>=0.1.0",
-    "pinecone-client>=3.0.0",
+    "pinecone>=3.0.0",
     "sentence-transformers>=2.2.0",
     "huggingface-hub>=0.20.0",
     "pyyaml>=6.0",
