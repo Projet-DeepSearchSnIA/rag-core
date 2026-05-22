@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "rag-core"
+version = "0.1.0"
+description = "pipeline RAG standalone pour NOXA : extraction PDF, OCR, chunking, retrieval, génération"
+requires-python = ">=3.10"
+dependencies = [
+    "PyMuPDF",
+    "Pillow",
+    "python-doctr[torch]",
+    "pix2tex",
+    "PyYAML",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["rag_core*"]
