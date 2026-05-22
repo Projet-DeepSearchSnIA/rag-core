@@ -10,6 +10,7 @@ usage:
 
 import argparse
 import os
+import tempfile
 import yaml
 from dotenv import load_dotenv
 
@@ -38,7 +39,7 @@ def main():
 
     extractor = PDFExtractor()
     logger.info("extraction de %s", args.pdf_path)
-    doc = extractor.extract(args.pdf_path, uploaded_url=args.pdf_path)
+    doc = extractor.extract_pdf(args.pdf_path, uploaded_url=args.pdf_path)
 
     chunk_cfg = config.get("chunking", {})
     splitter = SmartTextSplitter(
@@ -50,17 +51,25 @@ def main():
 
     if chunk_cfg.get("optimizer_enabled", True):
         optimizer = ChunkOptimizer()
-        chunks = optimizer.optimize(chunks)
+        chunks, _ = optimizer.optimize_chunks(chunks)
 
     embed_cfg = config.get("embedding", {})
     uploader = PineconeInferenceUploader(
         api_key=api_key,
         index_name=args.index,
-        embed_model=embed_cfg.get("model", "multilingual-e5-large"),
-        namespace=args.namespace
+        embed_model=embed_cfg.get("model", "multilingual-e5-large")
     )
-    uploader.upsert_chunks(chunks)
-    logger.info("indexation terminée — %d chunks", len(chunks))
+
+    with tempfile.NamedTemporaryFile(suffix="_chunks.json", delete=False, mode="w", encoding="utf-8") as tmp:
+        tmp_path = tmp.name
+
+    splitter.save_chunks(chunks, tmp_path)
+    try:
+        uploader.upload_chunks_from_json(tmp_path, namespace=args.namespace)
+    finally:
+        os.remove(tmp_path)
+
+    logger.info("indexation terminée ==> %d chunks", len(chunks))
 
 
 if __name__ == "__main__":

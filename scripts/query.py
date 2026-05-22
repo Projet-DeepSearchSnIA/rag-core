@@ -14,7 +14,7 @@ import yaml
 from dotenv import load_dotenv
 
 from rag_core.retrieval.retriever import PineconeRetriever
-from rag_core.generation.llm_handler import RAGPipeline
+from rag_core.generation.llm_handler import LLMHandler
 from rag_core.utils.logger import get_logger
 
 load_dotenv()
@@ -54,15 +54,16 @@ def main():
     )
 
     gen_cfg = config.get("generation", {})
-    pipeline = RAGPipeline(
-        model=gen_cfg.get("model", "meta-llama/Llama-3.1-8B-Instruct"),
+    llm = LLMHandler(
+        model_name=gen_cfg.get("model", "meta-llama/Llama-3.1-8B-Instruct"),
         api_key=hf_token,
         temperature=gen_cfg.get("temperature", 0.7),
         max_tokens=gen_cfg.get("max_tokens", 1000)
     )
 
-    answer = pipeline.generate(question=args.question, chunks=chunks)
-    print("\n" + answer)
+    retrieved_chunks = [c.to_dict() for c in chunks]
+    result = llm.generate_response(question=args.question, retrieved_chunks=retrieved_chunks)
+    print("\n" + result["response"])
 
 
 if __name__ == "__main__":
