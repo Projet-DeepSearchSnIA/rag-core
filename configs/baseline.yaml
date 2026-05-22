@@ -1,0 +1,23 @@
+# reproduction exacte du pipeline noxa — sert de baseline pour les labs
+chunking:
+  strategy: mixed
+  chunk_size: 1000
+  chunk_overlap: 200
+  optimizer_enabled: true
+
+embedding:
+  provider: pinecone_inference
+  model: multilingual-e5-large
+
+retrieval:
+  retrieve_k: 20
+  top_k: 5
+  rerank: true
+  rerank_model: bge-reranker-v2-m3
+  rerank_threshold: 0.35
+  truncation_chars_per_token: 4
+
+generation:
+  model: meta-llama/Llama-3.1-8B-Instruct
+  temperature: 0.7
+  max_tokens: 1000
