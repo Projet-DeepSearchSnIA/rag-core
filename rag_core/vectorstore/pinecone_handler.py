@@ -34,16 +34,16 @@ class PineconeInferenceUploader:
         existing = [idx.name for idx in self.pc.list_indexes()]
 
         if self.index_name in existing:
-            logger.info(f"index existant: {self.index_name}")
+            logger.info("index existant: %s", self.index_name)
             self.index = self.pc.Index(self.index_name)
             stats = self.index.describe_index_stats()
-            logger.info(f"vecteurs actuels: {stats.total_vector_count}")
+            logger.info("vecteurs actuels: %d", stats.total_vector_count)
         else:
-            logger.info(f"création de l'index: {self.index_name}")
+            logger.info("création de l'index: %s", self.index_name)
             self.pc.create_index_for_model(
                 name=self.index_name,
-                cloud="aws",
-                region="us-east-1",
+                cloud=self.cloud,
+                region=self.region,
                 embed={
                     "model": self.embed_model,
                     "field_map": {"text": "chunk_text"}
@@ -148,14 +148,14 @@ class PineconeInferenceUploader:
         return flat
 
     def upload_chunks_from_json(self, json_path: str, batch_size: int = 100, namespace: str = "__default__"):
-        logger.info(f"traitement: {Path(json_path).name}")
+        logger.info("traitement: %s", Path(json_path).name)
 
         with open(json_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
         chunks = data.get('chunks', [])
         total = len(chunks)
-        logger.info(f"{total} chunks à uploader")
+        logger.info("%d chunks à uploader", total)
 
         uploaded = 0
 
@@ -194,7 +194,7 @@ class PineconeInferenceUploader:
                     uploaded += len(records)
 
             except Exception as e:
-                logger.warning(f"erreur batch {i // batch_size}: {e}, tentative record par record")
+                logger.warning("erreur batch %d: %s, tentative record par record", i // batch_size, e)
                 for record in records:
                     try:
                         if hasattr(self.index, "upsert_records"):
@@ -213,9 +213,9 @@ class PineconeInferenceUploader:
                             )
                         uploaded += 1
                     except Exception as e2:
-                        logger.error(f"échec {record['id']}: {e2}")
+                        logger.error("échec %s: %s", record["id"], e2)
 
-        logger.info(f"{uploaded}/{total} chunks uploadés")
+        logger.info("%d/%d chunks uploadés", uploaded, total)
         return {
             'total': total,
             'uploaded': uploaded,
@@ -228,10 +228,10 @@ class PineconeInferenceUploader:
         files = list(chunks_path.glob(pattern))
 
         if not files:
-            logger.warning(f"aucun fichier dans {chunks_dir}")
+            logger.warning("aucun fichier dans %s", chunks_dir)
             return
 
-        logger.info(f"{len(files)} fichier(s) à uploader")
+        logger.info("%d fichier(s) à uploader", len(files))
 
         global_stats = {'files': len(files), 'total_chunks': 0, 'uploaded': 0, 'with_formulas': 0, 'with_images': 0, 'errors': []}
 
@@ -243,8 +243,8 @@ class PineconeInferenceUploader:
                 global_stats['with_formulas'] += stats['with_formulas']
                 global_stats['with_images'] += stats['with_images']
             except Exception as e:
-                logger.error(f"erreur {file.name}: {e}")
+                logger.error("erreur %s: %s", file.name, e)
                 global_stats['errors'].append({'file': file.name, 'error': str(e)})
 
-        logger.info(f"upload terminé — {global_stats['uploaded']}/{global_stats['total_chunks']} chunks")
+        logger.info("upload terminé — %d/%d chunks", global_stats["uploaded"], global_stats["total_chunks"])
         return global_stats
