@@ -160,7 +160,7 @@ Chaque passe (remove_empty, deduplicate, merge_small, split_large) est testée s
 
 ---
 
-### test_prompt_template.py — 19 tests
+### test_prompt_template.py — 33 tests
 
 Teste `PromptTemplates` (formatage du contexte, construction des prompts, parsing
 des métadonnées dans les réponses LLM) et `get_template_for_question_type`.
@@ -169,7 +169,7 @@ des métadonnées dans les réponses LLM) et `get_template_for_question_type`.
 |------|-----------------|
 | `test_format_context_contient_le_texte_du_chunk` | Texte présent dans le contexte |
 | `test_format_context_contient_le_nom_du_document` | Nom du doc dans le contexte |
-| `test_format_context_limite_max_chunks` | `max_chunks=2` → exactement 2 blocs |
+| `test_format_context_limite_max_chunks` | `max_chunks=2` → chunks surplus ignorés |
 | `test_format_context_pages_liste` | Pages de type liste formatées |
 | `test_format_context_avec_score` | `include_scores=True` → "pertinence" visible |
 | `test_build_rag_prompt_contient_la_question` | Question de l'utilisateur dans le prompt |
@@ -190,6 +190,16 @@ des métadonnées dans les réponses LLM) et `get_template_for_question_type`.
 | `test_template_question_factuelle` | "qui" → template factuel |
 | `test_template_question_par_defaut` | Pas de mot-clé → RAG_WITH_SOURCES |
 | `test_format_response_with_sources_structure` | Dict avec toutes les clés attendues |
+| `test_format_context_groupe_meme_document` | Même fichier → un seul en-tête `--- Source` |
+| `test_format_context_documents_distincts` | Fichiers différents → un en-tête chacun |
+| `test_format_context_max_chunks_per_doc` | `max_chunks_per_doc=2` → 3e extrait exclu |
+| `test_normalize_pages_liste` | `[1,2,3]` → `"1, 2, 3"` |
+| `test_normalize_pages_csv_string` | `"1,2,3"` → retourné tel quel |
+| `test_normalize_pages_string_avec_crochets` | `"[1, 2]"` → `"1, 2"` (crochets retirés) |
+| `test_normalize_pages_entier` | `5` → `"5"` |
+| `test_normalize_pages_none` | `None` → `"inconnue"` |
+| `test_build_chat_messages_template_adaptatif_ajoute_style` | Template non-default → dernière ligne ajoutée au message user |
+| `test_build_chat_messages_rag_with_sources_question_inchangee` | Template RAG_WITH_SOURCES → question non modifiée |
 
 ---
 
@@ -281,10 +291,11 @@ hallucination_rate(response, context_chunks) -> float
 | test_chunking.py | 7 | SmartTextSplitter, DocumentChunk |
 | test_preprocessor.py | 14 | TextPreprocessor |
 | test_chunk_optimizer.py | 15 | ChunkOptimizer |
-| test_prompt_template.py | 23 | PromptTemplates, routage question |
+| test_prompt_template.py | 33 | PromptTemplates, groupement chunks, _normalize_pages, routage question |
 | test_enriched_chunk.py | 13 | EnrichedChunk, méthodes privées Retriever |
 | test_metrics.py | 23 | MRR, Recall, Precision, NDCG, faithfulness |
-| **Total** | **103** | |
+| test_retrieval.py | 9 | HybridRetriever, filtres metadata, reranking |
+| **Total** | **122** | |
 
 Tous les tests s'exécutent en < 10 secondes sans réseau.
 
