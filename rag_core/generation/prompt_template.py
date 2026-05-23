@@ -1,4 +1,5 @@
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
+from collections import defaultdict
 import re
 
 
@@ -61,54 +62,86 @@ DOCUMENTS:
 Réponds uniquement par OUI ou NON."""
 
     @staticmethod
-    def format_context(retrieved_chunks: List[Dict], include_scores: bool = False, max_chunks: int = 5) -> str:
-        context_parts = []
+    def _normalize_pages(pages) -> str:
+        """Convertit page_numbers (list, CSV string, int) en string lisible."""
+        if isinstance(pages, list):
+            return ', '.join(map(str, pages))
+        if isinstance(pages, str):
+            cleaned = pages.strip().strip('[]')
+            return cleaned if cleaned else 'inconnue'
+        if pages is not None:
+            return str(pages)
+        return 'inconnue'
 
-        for i, chunk in enumerate(retrieved_chunks[:max_chunks], 1):
-            if hasattr(chunk, "to_dict"):
-                chunk_dict = chunk.to_dict()
-                metadata = getattr(chunk, "metadata", {}) or {}
-                text = chunk_dict.get("text", "")
-                score_val = chunk_dict.get("score")
-            else:
-                chunk_dict = chunk
-                metadata = chunk.get('metadata', {})
-                text = chunk.get('text', chunk.get('content', ''))
-                score_val = chunk.get('score')
+    @staticmethod
+    def _extract_chunk_fields(chunk) -> tuple:
+        """Retourne (metadata, text, score) depuis un chunk dict ou EnrichedChunk."""
+        if hasattr(chunk, "to_dict"):
+            chunk_dict = chunk.to_dict()
+            metadata = getattr(chunk, "metadata", {}) or {}
+            text = chunk_dict.get("text", "")
+            score_val = chunk_dict.get("score")
+        else:
+            metadata = chunk.get('metadata', {})
+            text = chunk.get('text', chunk.get('content', ''))
+            score_val = chunk.get('score')
+        return metadata, text, score_val
 
-            doc_path = metadata.get('document_path') or metadata.get('document_name') or 'Document inconnu'
-            pages = metadata.get('page_numbers', 'Page inconnue')
+    @staticmethod
+    def format_context(
+        retrieved_chunks: List[Dict],
+        include_scores: bool = False,
+        max_chunks: int = 5,
+        max_chunks_per_doc: int = 3,
+    ) -> str:
+        """Formate les chunks en groupant par document source.
 
-            if isinstance(pages, list):
-                pages_str = f"pages {', '.join(map(str, pages))}"
-            elif isinstance(pages, str):
-                pages_str = f"page {pages.replace('[', '').replace(']', '')}"
-            else:
-                pages_str = f"page {pages}"
-
-            score_str = f" (pertinence: {score_val:.2f})" if include_scores and score_val is not None else ""
-
-            images = metadata.get('image_paths') or metadata.get('image_ids') or []
-            formulas = metadata.get('formulas_latex') or []
-
-            images_str = ""
-            formulas_str = ""
-            if images:
-                images_str = "\nImages: " + " | ".join([str(i) for i in images[:5]]) if isinstance(images, list) else f"\nImages: {images}"
-            if formulas:
-                formulas_str = "\nFormules: " + " | ".join([str(f) for f in formulas[:3]]) if isinstance(formulas, list) else f"\nFormules: {formulas}"
-
-            context_parts.append(
-                f"--- Document {i} ---\n"
-                f"Source: {doc_path}, {pages_str}{score_str}\n"
-                f"Contenu:\n{text}\n"
-                f"{images_str}{formulas_str}\n"
+        Chaque document est présenté une seule fois avec ses extraits listés
+        dessous, évitant que le LLM confonde plusieurs chunks du même fichier
+        avec des documents distincts.
+        """
+        # Grouper les chunks par document (en respectant max_chunks global)
+        docs: dict = defaultdict(list)
+        for chunk in retrieved_chunks[:max_chunks]:
+            metadata, text, score_val = PromptTemplates._extract_chunk_fields(chunk)
+            doc_name = (
+                metadata.get('document_path')
+                or metadata.get('document_name')
+                or 'Document inconnu'
             )
+            docs[doc_name].append((metadata, text, score_val))
+
+        context_parts = []
+        for doc_num, (doc_name, chunks) in enumerate(docs.items(), 1):
+            context_parts.append(f"--- Source {doc_num} : {doc_name} ---")
+
+            for chunk_data in chunks[:max_chunks_per_doc]:
+                metadata, text, score_val = chunk_data
+                pages_str = PromptTemplates._normalize_pages(metadata.get('page_numbers'))
+                score_str = f" (pertinence : {score_val:.2f})" if include_scores and score_val is not None else ""
+
+                images = metadata.get('image_paths') or metadata.get('image_ids') or []
+                formulas = metadata.get('formulas_latex') or []
+
+                images_str = ""
+                formulas_str = ""
+                if images:
+                    imgs = images if isinstance(images, list) else [images]
+                    images_str = "\nImages : " + " | ".join(str(img) for img in imgs[:5])
+                if formulas:
+                    fmls = formulas if isinstance(formulas, list) else [formulas]
+                    formulas_str = "\nFormules : " + " | ".join(str(f) for f in fmls[:3])
+
+                context_parts.append(
+                    f"[page(s) {pages_str}{score_str}]\n"
+                    f"{text}"
+                    f"{images_str}{formulas_str}\n"
+                )
 
         return "\n".join(context_parts)
 
     @staticmethod
-    def build_rag_prompt(question: str, retrieved_chunks: List[Dict], template: str = None, **kwargs) -> str:
+    def build_rag_prompt(question: str, retrieved_chunks: List[Dict], template: Optional[str] = None, **kwargs) -> str:
         if template is None:
             template = PromptTemplates.RAG_WITH_SOURCES
 
@@ -158,7 +191,14 @@ DOCUMENTS DE RÉFÉRENCE:
         if conversation_history:
             messages.extend(conversation_history)
 
-        messages.append({"role": "user", "content": question})
+        # Appliquer le style de réponse issu du template (ex. "Réponse courte et précise avec source:")
+        user_content = question
+        if template is not None and template != PromptTemplates.RAG_WITH_SOURCES:
+            style_lines = [line.strip() for line in template.strip().split('\n') if line.strip()]
+            if style_lines:
+                user_content = f"{question}\n\n{style_lines[-1]}"
+
+        messages.append({"role": "user", "content": user_content})
 
         return messages
 
@@ -195,7 +235,7 @@ DOCUMENTS DE RÉFÉRENCE:
         return {'clean_response': clean_response, 'metadata': metadata}
 
     @staticmethod
-    def format_response_with_sources(response: str, retrieved_chunks: List[Dict]) -> Dict:
+    def format_response_with_sources(response: str, retrieved_chunks: List[Any]) -> Dict:
         parsed_result = PromptTemplates.extract_metadata_blocks(response)
         clean_response = parsed_result['clean_response']
         metadata = parsed_result['metadata']
