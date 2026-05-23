@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 
 from rag_core.extraction.document_schemas import ExtractedDocument, ContentBlock
+from rag_core.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class DocumentChunk:
@@ -94,7 +97,7 @@ class SmartTextSplitter:
         )
 
     def split_document(self, doc: ExtractedDocument) -> List[DocumentChunk]:
-        print(f"chunking de: {doc.filename}, pages: {len(doc.pages)}, stratégie: {self.strategy}")
+        logger.info("chunking de: %s, pages: %d, stratégie: %s", doc.filename, len(doc.pages), self.strategy)
 
         if self.strategy == "recursive":
             chunks = self._split_recursive(doc)
@@ -105,7 +108,7 @@ class SmartTextSplitter:
         else:
             raise ValueError(f"stratégie inconnue: {self.strategy}")
 
-        print(f"{len(chunks)} chunks créés")
+        logger.info("%d chunks créés", len(chunks))
         return chunks
 
     def _split_recursive(self, doc: ExtractedDocument) -> List[DocumentChunk]:
@@ -384,4 +387,4 @@ class SmartTextSplitter:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(output, f, ensure_ascii=False, indent=2)
 
-        print(f"chunks sauvegardés: {output_path}")
+        logger.info("chunks sauvegardés: %s", output_path)
