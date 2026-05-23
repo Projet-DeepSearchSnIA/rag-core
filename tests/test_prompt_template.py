@@ -8,7 +8,11 @@ donc rapides et faciles à tester.
 On utilise des dicts simples pour simuler les chunks — PromptTemplates accepte
 à la fois des dicts et des objets avec to_dict(), on teste les deux formes.
 """
-from rag_core.generation.prompt_template import PromptTemplates, get_template_for_question_type
+from rag_core.generation.prompt_template import (
+    PromptTemplates,
+    QUESTION_TYPE_TEMPLATES,
+    get_template_for_question_type,
+)
 
 
 def _chunk_dict(text: str, doc_name: str = "article.pdf", pages: list = None) -> dict:
@@ -38,11 +42,12 @@ def test_format_context_contient_le_nom_du_document():
 
 
 def test_format_context_limite_max_chunks():
-    """Quand on passe max_chunks=2, les chunks en surplus sont ignorés."""
+    """Quand on passe max_chunks=2, les chunks au-delà sont ignorés."""
     chunks = [_chunk_dict(f"Chunk {i}.") for i in range(5)]
     contexte = PromptTemplates.format_context(chunks, max_chunks=2)
-    # on vérifie qu'on n'a que 2 blocs "--- Document" dans le résultat
-    assert contexte.count("--- Document") == 2
+    assert "Chunk 0." in contexte
+    assert "Chunk 1." in contexte
+    assert "Chunk 2." not in contexte
 
 
 def test_format_context_pages_liste():
@@ -207,3 +212,94 @@ def test_format_response_with_sources_structure():
     assert "all_sources" in resultat
     assert "num_sources_used" in resultat
     assert resultat["num_sources_used"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Groupement par document (nouveau comportement de format_context)
+# ---------------------------------------------------------------------------
+
+def test_format_context_groupe_meme_document():
+    """Plusieurs chunks du même fichier → un seul en-tête Source."""
+    chunks = [
+        _chunk_dict("Extrait 1.", doc_name="cours.pdf"),
+        _chunk_dict("Extrait 2.", doc_name="cours.pdf"),
+        _chunk_dict("Extrait 3.", doc_name="cours.pdf"),
+    ]
+    contexte = PromptTemplates.format_context(chunks)
+    assert contexte.count("--- Source") == 1
+    assert "cours.pdf" in contexte
+    assert "Extrait 1." in contexte
+    assert "Extrait 2." in contexte
+
+
+def test_format_context_documents_distincts():
+    """Chunks de fichiers différents → un en-tête par fichier."""
+    chunks = [
+        _chunk_dict("Extrait A.", doc_name="doc_a.pdf"),
+        _chunk_dict("Extrait B.", doc_name="doc_b.pdf"),
+    ]
+    contexte = PromptTemplates.format_context(chunks)
+    assert contexte.count("--- Source") == 2
+    assert "doc_a.pdf" in contexte
+    assert "doc_b.pdf" in contexte
+
+
+def test_format_context_max_chunks_per_doc():
+    """max_chunks_per_doc limite le nombre d'extraits affichés par document."""
+    chunks = [_chunk_dict(f"Extrait {i}.", doc_name="gros_doc.pdf") for i in range(5)]
+    contexte = PromptTemplates.format_context(chunks, max_chunks=5, max_chunks_per_doc=2)
+    assert "Extrait 0." in contexte
+    assert "Extrait 1." in contexte
+    assert "Extrait 2." not in contexte
+
+
+# ---------------------------------------------------------------------------
+# _normalize_pages
+# ---------------------------------------------------------------------------
+
+def test_normalize_pages_liste():
+    assert PromptTemplates._normalize_pages([1, 2, 3]) == "1, 2, 3"
+
+
+def test_normalize_pages_csv_string():
+    assert PromptTemplates._normalize_pages("1,2,3") == "1,2,3"
+
+
+def test_normalize_pages_string_avec_crochets():
+    assert PromptTemplates._normalize_pages("[1, 2]") == "1, 2"
+
+
+def test_normalize_pages_entier():
+    assert PromptTemplates._normalize_pages(5) == "5"
+
+
+def test_normalize_pages_none():
+    assert PromptTemplates._normalize_pages(None) == "inconnue"
+
+
+# ---------------------------------------------------------------------------
+# Template adaptatif dans build_chat_messages
+# ---------------------------------------------------------------------------
+
+def test_build_chat_messages_template_adaptatif_ajoute_style():
+    """Un template non-default → la dernière ligne est ajoutée au message user."""
+    chunks = [_chunk_dict("Contexte.")]
+    template_factuel = QUESTION_TYPE_TEMPLATES["factual"]
+    messages = PromptTemplates.build_chat_messages(
+        "Qui a inventé le Transformer ?", chunks, template=template_factuel
+    )
+    user_content = next(m["content"] for m in messages if m["role"] == "user")
+    assert "Qui a inventé le Transformer ?" in user_content
+    style = [l.strip() for l in template_factuel.strip().split("\n") if l.strip()][-1]
+    assert style in user_content
+
+
+def test_build_chat_messages_rag_with_sources_question_inchangee():
+    """Avec RAG_WITH_SOURCES (défaut), la question n'est pas modifiée."""
+    chunks = [_chunk_dict("Contexte.")]
+    question = "Quelle est la formule de l'attention ?"
+    messages = PromptTemplates.build_chat_messages(
+        question, chunks, template=PromptTemplates.RAG_WITH_SOURCES
+    )
+    user_content = next(m["content"] for m in messages if m["role"] == "user")
+    assert user_content == question
