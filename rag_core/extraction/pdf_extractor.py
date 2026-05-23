@@ -19,6 +19,9 @@ from .document_schemas import (
 from .ocr_handler import DocTROCRHandler
 from .preprocessor import TextPreprocessor
 from .math_ocr_handler import MathOCRHandler
+from rag_core.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class PDFExtractor:
@@ -65,7 +68,7 @@ class PDFExtractor:
             try:
                 self.math_ocr_handler = MathOCRHandler(device=self.math_ocr_device)
             except Exception as e:
-                print(f"ocr math indisponible: {e}")
+                logger.warning("ocr math indisponible: %s", e)
                 self.math_ocr_handler = None
 
     def extract_pdf(
@@ -77,17 +80,16 @@ class PDFExtractor:
     ) -> ExtractedDocument:
         start_time = time.time()
 
-        print(f"extraction de: {pdf_path}")
+        logger.info("extraction de: %s", pdf_path)
 
         doc = ExtractedDocument.create_new(source_file=pdf_path, uploaded_url=uploaded_url)
 
         try:
-            taille_octets = os.path.getsize(pdf_path)
-            taille_mo = taille_octets / (1024 * 1024)
-            print(f"taille du pdf: {taille_mo:.2f} mo")
+            taille_mo = os.path.getsize(pdf_path) / (1024 * 1024)
+            logger.debug("taille du pdf: %.2f mo", taille_mo)
             pdf_doc = fitz.open(pdf_path)
         except Exception as e:
-            print(f"erreur ouverture pdf: {e}")
+            logger.error("erreur ouverture pdf: %s", e)
             doc.stats.errors.append(f"erreur ouverture: {str(e)}")
             return doc
 
@@ -96,15 +98,15 @@ class PDFExtractor:
 
         is_scanned = self._is_scanned_pdf(pdf_doc)
         if is_scanned:
-            print("pdf scanné détecté, on utilise doctr")
+            logger.info("pdf scanné détecté, utilisation de doctr")
             if self.use_ocr_for_scanned:
                 self._init_ocr_handler()
 
-        print(f"traitement de {len(pdf_doc)} pages...")
+        logger.info("traitement de %d pages...", len(pdf_doc))
 
         for page_num in range(len(pdf_doc)):
             try:
-                print(f"page {page_num + 1}...")
+                logger.debug("page %d/%d...", page_num + 1, len(pdf_doc))
                 page_content = self._extract_page(
                     pdf_doc,
                     page_num,
@@ -129,10 +131,10 @@ class PDFExtractor:
                 if page_content.extraction_method == "ocr":
                     doc.stats.pages_with_ocr += 1
 
-                print(f"  page {page_num + 1}/{len(pdf_doc)} ok")
+                logger.debug("page %d ok", page_num + 1)
 
             except Exception as e:
-                print(f"  erreur page {page_num + 1}: {e}")
+                logger.error("erreur page %d: %s", page_num + 1, e)
                 doc.stats.errors.append(f"page {page_num + 1}: {str(e)}")
 
         pdf_doc.close()
@@ -140,8 +142,12 @@ class PDFExtractor:
         doc.stats.total_pages = len(doc.pages)
         doc.stats.processing_time_seconds = time.time() - start_time
 
-        print(f"extraction terminée en {doc.stats.processing_time_seconds:.2f}s")
-        print(f"  pages: {doc.stats.total_pages}, texte: {doc.stats.total_text_blocks}, images: {doc.stats.total_images}, tableaux: {doc.stats.total_tables}, ocr: {doc.stats.pages_with_ocr}")
+        logger.info(
+            "extraction terminée en %.2fs — pages: %d, texte: %d, images: %d, tableaux: %d, ocr: %d",
+            doc.stats.processing_time_seconds, doc.stats.total_pages,
+            doc.stats.total_text_blocks, doc.stats.total_images,
+            doc.stats.total_tables, doc.stats.pages_with_ocr
+        )
 
         return doc
 
@@ -209,7 +215,7 @@ class PDFExtractor:
         extraction_method = "pymupdf"
 
         if is_scanned and self.use_ocr_for_scanned and self.ocr_handler:
-            print(f"page {page_num + 1} traitée avec doctr")
+            logger.debug("page %d traitée avec doctr", page_num + 1)
             blocks = self._extract_with_ocr(page, page_num)
             extraction_method = "ocr"
         else:
@@ -271,7 +277,7 @@ class PDFExtractor:
 
             elif block["type"] == 1:
                 if self.extract_images:
-                    print(f"image détectée page {page_num + 1}")
+                    logger.debug("image détectée page %d", page_num + 1)
                     image_block = self._extract_image(
                         page,
                         block,
@@ -345,7 +351,7 @@ class PDFExtractor:
 
             if self.upload_callback:
                 try:
-                    print(f"upload de l'image {image_id}...")
+                    logger.debug("upload de l'image %s...", image_id)
                     img_bytes = io.BytesIO()
                     image.save(img_bytes, format='PNG')
                     img_bytes = img_bytes.getvalue()
@@ -354,9 +360,9 @@ class PDFExtractor:
                         public_id=image_id,
                         folder=f"rag-images/{document_name_without_ext}"
                     )
-                    print(f"image uploadée: {image_url}")
+                    logger.debug("image uploadée: %s", image_url)
                 except Exception as e:
-                    print(f"échec upload: {e}, sauvegarde locale")
+                    logger.warning("échec upload image %s, sauvegarde locale", e)
                     image_path = self.temp_dir / f"{image_id}.png"
                     image.save(image_path)
                     image_url = str(image_path)
@@ -384,7 +390,7 @@ class PDFExtractor:
             )
 
         except Exception as e:
-            print(f"erreur extraction image: {e}")
+            logger.error("erreur extraction image: %s", e)
             return None
 
     def _is_likely_title(self, block: dict) -> bool:
@@ -460,5 +466,5 @@ class PDFExtractor:
         output_file = self.output_dir / f"{doc.document_id}.json"
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(doc.to_dict(), f, ensure_ascii=False, indent=2)
-        print(f"document sauvegardé: {output_file}")
+        logger.info("document sauvegardé: %s", output_file)
         return str(output_file)
