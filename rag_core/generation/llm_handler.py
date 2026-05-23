@@ -30,7 +30,7 @@ class LLMHandler:
             if not api_key:
                 raise ValueError("HF_TOKEN non trouvé, définissez-le dans .env")
 
-        logger.info(f"initialisation LLMHandler — modèle: {model_name}")
+        logger.info("initialisation LLMHandler — modèle: %s", model_name)
         self.client = InferenceClient(api_key=api_key)
 
     def generate_response(
@@ -42,7 +42,7 @@ class LLMHandler:
         conversation_history: Optional[List[Dict]] = None,
         topic: Optional[str] = None
     ) -> Dict:
-        logger.info(f"génération — question: {question[:80]}..., {len(retrieved_chunks)} chunks")
+        logger.info("génération — question: %s..., %d chunks", question[:80], len(retrieved_chunks))
 
         template = get_template_for_question_type(question) if use_adaptive_template else PromptTemplates.RAG_WITH_SOURCES
 
@@ -71,12 +71,12 @@ class LLMHandler:
 
                 completion = self.client.chat.completions.create(**params)
                 response_text = completion.choices[0].message.content
-                logger.info(f"réponse générée ({len(response_text)} chars)")
+                logger.info("réponse générée (%d chars)", len(response_text))
                 break
 
             except Exception as e:
                 error_str = str(e)
-                logger.warning(f"erreur génération tentative {attempt + 1}: {error_str}")
+                logger.warning("erreur génération tentative %d: %s", attempt + 1, error_str)
                 is_server_error = any(code in error_str for code in ["502", "503", "504", "Bad Gateway", "Gateway Time-out"])
                 if is_server_error and attempt < max_retries - 1:
                     time.sleep(retry_delay)
@@ -137,7 +137,7 @@ class RAGPipeline:
         logger.info("RAGPipeline initialisé")
 
     def ask(self, question: str, top_k: int = 5, min_score: float = 0.5, **kwargs) -> Dict:
-        logger.info(f"question RAG: {question}")
+        logger.info("question RAG: %s", question)
 
         query_embedding = self.embedding_model.encode([question])[0].tolist()
         ids, scores, metadatas = self.vector_store.search(query_embedding=query_embedding, top_k=top_k)
