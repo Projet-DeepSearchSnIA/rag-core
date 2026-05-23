@@ -4,6 +4,9 @@ from typing import List, Optional
 import re
 
 from .document_schemas import ContentBlock, BoundingBox
+from rag_core.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class DocTROCRHandler:
@@ -40,15 +43,16 @@ class DocTROCRHandler:
         self,
         image: Image.Image,
         page_number: int,
-        prompt_type: str = "ocr_layout",
         image_id: Optional[str] = None
     ) -> List[ContentBlock]:
         try:
             img_array = np.array(image)
             result = self.model([img_array])
-            return self._parse_doctr_result(result, page_number, image_id)
+            if not result.pages:
+                return []
+            return self._parse_doctr_page(result.pages[0], page_number, image_id)
         except Exception as e:
-            print(f"erreur traitement image: {e}")
+            logger.error("erreur traitement image: %s", e)
             return []
 
     def process_page_image(
@@ -56,7 +60,7 @@ class DocTROCRHandler:
         page_image: Image.Image,
         page_number: int
     ) -> List[ContentBlock]:
-        return self.process_image(page_image, page_number, prompt_type="ocr_layout")
+        return self.process_image(page_image, page_number)
 
     def process_image_for_description(
         self,
@@ -64,7 +68,7 @@ class DocTROCRHandler:
         page_number: int,
         image_id: str
     ) -> ContentBlock:
-        blocks = self.process_image(image, page_number, prompt_type="caption", image_id=image_id)
+        blocks = self.process_image(image, page_number, image_id=image_id)
         description = " ".join([b.content for b in blocks if b.type == "text"])
 
         return ContentBlock(
@@ -75,18 +79,16 @@ class DocTROCRHandler:
             image_description=description
         )
 
-    def _parse_doctr_result(
+    def _parse_doctr_page(
         self,
-        result,
+        page,
         page_number: int,
         image_id: Optional[str] = None
     ) -> List[ContentBlock]:
+        if page is None:
+            return []
+
         blocks = []
-
-        if len(result.pages) == 0:
-            return blocks
-
-        page = result.pages[0]
 
         for block in page.blocks:
             block_text_lines = []
@@ -163,15 +165,11 @@ class DocTROCRHandler:
                 results = self.model(batch_images)
 
                 for result, (page_num, img_id) in zip(results.pages, batch_metadata):
-                    blocks = self._parse_doctr_result(
-                        type('Result', (), {'pages': [result]})(),
-                        page_num,
-                        img_id
-                    )
+                    blocks = self._parse_doctr_page(result, page_num, img_id)
                     all_blocks.append(blocks)
 
             except Exception as e:
-                print(f"erreur batch: {e}, traitement individuel")
+                logger.warning("erreur batch: %s, traitement individuel", e)
                 for image, page_num, img_id in batch:
                     blocks = self.process_image(image, page_num, image_id=img_id)
                     all_blocks.append(blocks)
