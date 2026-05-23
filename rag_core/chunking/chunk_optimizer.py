@@ -3,6 +3,9 @@ from collections import Counter
 import re
 
 from rag_core.chunking.text_splitter import DocumentChunk
+from rag_core.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class ChunkOptimizer:
@@ -27,7 +30,7 @@ class ChunkOptimizer:
         self.similarity_threshold = similarity_threshold
 
     def optimize_chunks(self, chunks: List[DocumentChunk]) -> Tuple[List[DocumentChunk], Dict]:
-        print(f"optimisation de {len(chunks)} chunks...")
+        logger.info("optimisation de %d chunks...", len(chunks))
 
         original_count = len(chunks)
         optimized = chunks.copy()
@@ -63,7 +66,7 @@ class ChunkOptimizer:
         stats['final_count'] = len(optimized)
         stats['size_stats'] = self._compute_size_stats(optimized)
 
-        print(f"{stats['final_count']} chunks finaux")
+        logger.info("%d chunks finaux", stats["final_count"])
         return optimized, stats
 
     def _remove_empty_chunks(self, chunks: List[DocumentChunk]) -> List[DocumentChunk]:
