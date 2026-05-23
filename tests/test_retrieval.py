@@ -1,6 +1,11 @@
 from rag_core.retrieval.retriever import PineconeRetriever
 
 
+def _retriever_vide() -> PineconeRetriever:
+    """Instance sans __init__ pour tester les méthodes qui chaînent entre elles."""
+    return object.__new__(PineconeRetriever)
+
+
 def test_truncate_pour_rerank_court():
     # on teste la méthode privée directement pour valider le ratio 4 chars/token
     text = "a" * 50
@@ -35,15 +40,16 @@ def test_parse_json_field_deja_liste():
 
 
 def test_parse_list_field_csv():
-    r = PineconeRetriever._parse_list_field(None, "page1,page2,page3")
+    # _parse_list_field appelle self._parse_json_field → besoin d'une vraie instance
+    r = _retriever_vide()._parse_list_field("page1,page2,page3")
     assert r == ["page1", "page2", "page3"]
 
 
 def test_parse_list_field_liste():
-    r = PineconeRetriever._parse_list_field(None, ["x", "y"])
+    r = _retriever_vide()._parse_list_field(["x", "y"])
     assert r == ["x", "y"]
 
 
 def test_parse_list_field_vide():
-    r = PineconeRetriever._parse_list_field(None, "")
+    r = _retriever_vide()._parse_list_field("")
     assert r == []
