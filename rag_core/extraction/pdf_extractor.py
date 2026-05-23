@@ -83,6 +83,8 @@ class PDFExtractor:
         logger.info("extraction de: %s", pdf_path)
 
         doc = ExtractedDocument.create_new(source_file=pdf_path, uploaded_url=uploaded_url)
+        if document_name_without_ext:
+            doc.filename = document_name_without_ext
 
         try:
             taille_mo = os.path.getsize(pdf_path) / (1024 * 1024)
