@@ -4,6 +4,10 @@ from dataclasses import dataclass
 
 from pinecone import Pinecone
 
+from rag_core.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 @dataclass
 class EnrichedChunk:
@@ -66,7 +70,7 @@ class PineconeRetriever:
         self.namespace = namespace
         self.input_type = "query"
 
-        print(f"retriever initialisé — index: {index_name}, embed: {embed_model}, rerank: {rerank_model}")
+        logger.info("retriever initialisé — index: %s, embed: %s, rerank: %s", index_name, embed_model, rerank_model)
 
     def _parse_json_field(self, value: Any) -> Any:
         if not isinstance(value, str):
@@ -136,7 +140,7 @@ class PineconeRetriever:
         )
 
     def _query_pinecone(self, query: str, top_k: int, filter: Optional[Dict] = None) -> List[Dict]:
-        print(f"query pinecone top_k={top_k}...")
+        logger.debug("query pinecone top_k=%d...", top_k)
         try:
             emb_response = self.pc.inference.embed(
                 model=self.embed_model,
@@ -145,7 +149,7 @@ class PineconeRetriever:
             )
             vec = emb_response[0]["values"] if isinstance(emb_response[0], dict) else emb_response[0].values
         except Exception as e:
-            print(f"erreur embedding: {e}")
+            logger.error("erreur embedding: %s", e)
             raise
 
         try:
@@ -158,7 +162,7 @@ class PineconeRetriever:
             )
             matches = results.get("matches", [])
         except Exception as e:
-            print(f"erreur query: {e}")
+            logger.error("erreur query: %s", e)
             raise
 
         docs = []
@@ -178,10 +182,10 @@ class PineconeRetriever:
         return docs
 
     def _rerank(self, query: str, docs: List[Dict], top_k: int) -> List[Dict]:
-        print(f"reranking top_k={top_k}...")
+        logger.debug("reranking top_k=%d...", top_k)
 
         if not hasattr(self.pc, "inference") or not hasattr(self.pc.inference, "rerank"):
-            print("rerank non disponible, skip")
+            logger.debug("rerank non disponible, skip")
             return docs[:top_k]
 
         texts = [self._truncate_for_rerank(d.get("rerank_text", "") or d.get("text", "")) for d in docs]
@@ -210,7 +214,7 @@ class PineconeRetriever:
             return ranked[:top_k]
 
         except Exception as e:
-            print(f"erreur rerank: {e}, fallback sans rerank")
+            logger.warning("erreur rerank: %s, fallback sans rerank", e)
             return docs[:top_k]
 
     def retrieve(
@@ -223,12 +227,12 @@ class PineconeRetriever:
         rerank: bool = True,
         filter: Optional[Dict] = None
     ) -> List[EnrichedChunk]:
-        print(f"retrieval — query: {query[:80]}...")
+        logger.info("retrieval — query: %s...", query[:80])
 
         candidates = self._query_pinecone(query, retrieve_k, filter=filter)
 
         if not candidates:
-            print("aucun résultat")
+            logger.info("aucun résultat")
             return []
 
         if rerank:
@@ -245,12 +249,18 @@ class PineconeRetriever:
         final_docs = filtered[:final_limit] if len(filtered) >= final_limit else filtered
         if len(final_docs) < final_limit:
             needed = final_limit - len(final_docs)
-            extras = [d for d in ranked_docs if d not in final_docs]
+            final_ids = {d["id"] for d in final_docs}
+            extras = [d for d in ranked_docs if d["id"] not in final_ids]
             final_docs.extend(extras[:needed])
 
         enriched_chunks = [self._create_enriched_chunk(doc) for doc in final_docs]
 
-        print(f"{len(enriched_chunks)} chunks enrichis, formules: {sum(1 for c in enriched_chunks if c.has_formulas)}, images: {sum(1 for c in enriched_chunks if c.has_images)}")
+        logger.info(
+            "%d chunks enrichis, formules: %d, images: %d",
+            len(enriched_chunks),
+            sum(1 for c in enriched_chunks if c.has_formulas),
+            sum(1 for c in enriched_chunks if c.has_images)
+        )
         return enriched_chunks
 
     def format_for_llm(self, chunks: List[EnrichedChunk]) -> str:
