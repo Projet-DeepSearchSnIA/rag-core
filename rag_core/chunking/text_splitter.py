@@ -118,7 +118,7 @@ class SmartTextSplitter:
         for page in doc.pages:
             page_blocks = [
                 block for block in page.content_blocks
-                if block.type in ["text", "title", "list", "formula", "image"]
+                if block.type in ["text", "title", "list", "formula", "image", "table"]
             ]
 
             if not page_blocks:
@@ -208,7 +208,7 @@ class SmartTextSplitter:
                     current_pages = {page.page_number}
                     current_maps = {'formulas': {}, 'images': {}}
 
-                elif block.type in ["text", "list", "formula", "image"]:
+                elif block.type in ["text", "list", "formula", "image", "table"]:
                     part, maps = self._build_text_with_placeholders([block])
                     current_section.append(part)
                     current_pages.add(page.page_number)
