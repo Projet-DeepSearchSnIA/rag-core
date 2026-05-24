@@ -105,8 +105,12 @@ class LLMHandler:
         if self.provider:
             params["provider"] = self.provider
 
-        completion = self.client.chat.completions.create(**params)
-        return completion.choices[0].message.content
+        try:
+            completion = self.client.chat.completions.create(**params)
+            return completion.choices[0].message.content or ""
+        except Exception as e:
+            logger.error("erreur generate_simple: %s", e)
+            return "Désolé, je n'ai pas pu générer de réponse."
 
     def stream_response(self, question: str, retrieved_chunks: List[Dict], **kwargs):
         messages = PromptTemplates.build_chat_messages(question=question, retrieved_chunks=retrieved_chunks)
