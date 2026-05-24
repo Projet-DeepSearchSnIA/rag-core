@@ -212,7 +212,6 @@ DOCUMENTS DE RÉFÉRENCE:
         metadata = {
             'sources_used': [],
             'images_used': [],
-            'equations_used': [],
             'follow_up_questions': []
         }
 
@@ -220,7 +219,7 @@ DOCUMENTS DE RÉFÉRENCE:
 
         for key in metadata.keys():
             tag_name = key.upper()
-            pattern = rf'{tag_name}\s*:\s*(?:\[(.*?)\]|(.*?))(?=\s*(?:SOURCES_USED|IMAGES_USED|EQUATIONS_USED|FOLLOW_UP_QUESTIONS)|$)'
+            pattern = rf'{tag_name}\s*:\s*(?:\[(.*?)\]|(.*?))(?=\s*(?:SOURCES_USED|IMAGES_USED|FOLLOW_UP_QUESTIONS)|$)'
             match = re.search(pattern, clean_response, re.DOTALL | re.IGNORECASE)
             if match:
                 full_match = match.group(0)

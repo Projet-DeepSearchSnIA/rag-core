@@ -161,7 +161,7 @@ class PineconeRetriever:
                 include_metadata=True,
                 namespace=self.namespace
             )
-            matches = results.get("matches", [])
+            matches = results.matches if hasattr(results, 'matches') else results.get("matches", [])
         except Exception as e:
             logger.error("erreur query: %s", e)
             raise
