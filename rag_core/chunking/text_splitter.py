@@ -148,7 +148,7 @@ class SmartTextSplitter:
                         'has_tables': page.has_tables,
                         'has_formulas': len(formulas_used) > 0,
                         'document_title': doc.metadata.title,
-                        'document_author': doc.metadata.author,
+                        'document_author': ", ".join(doc.metadata.author) if doc.metadata.author else None,
                         'publication_id': doc.metadata.publication_id,
                         'attachment_id': doc.metadata.attachment_id,
                         'user_id': doc.metadata.user_id,
@@ -172,56 +172,35 @@ class SmartTextSplitter:
         chunks = []
         chunk_counter = 0
 
-        current_section = []
-        current_title = None
-        current_pages = set()
-        current_maps = {'formulas': {}, 'images': {}}
+        current_blocks: List[ContentBlock] = []
+        current_title: Optional[str] = None
+        current_pages: set = set()
 
-        for page in doc.pages:
-            for block in page.content_blocks:
-                if block.type == "title":
-                    if current_section:
-                        chunk_text = "\n\n".join(current_section)
-                        sub_chunks = self.splitter.split_text(chunk_text) if len(chunk_text) > self.chunk_size * 1.5 else [chunk_text]
+        def flush_section():
+            nonlocal chunk_counter
+            if current_title is None and not current_blocks:
+                return
 
-                        for sub_chunk in sub_chunks:
-                            expanded_text, formulas_used, images_used = self._expand_placeholders_and_collect_metadata(
-                                sub_chunk, current_maps
-                            )
-                            chunk = self._create_chunk(
-                                expanded_text, doc, list(current_pages), chunk_counter,
-                                {
-                                    'section_title': current_title,
-                                    'has_images': len(images_used) > 0,
-                                    'has_formulas': len(formulas_used) > 0,
-                                    'image_ids': [i.get('image_id') for i in images_used if i.get('image_id')],
-                                    'image_paths': [i.get('image_path') for i in images_used if i.get('image_path')],
-                                    'images': images_used,
-                                    'formulas': formulas_used
-                                }
-                            )
-                            chunks.append(chunk)
-                            chunk_counter += 1
+            # Traite tous les blocs d'un coup — les indices formula/image sont
+            # séquentiels sur toute la section, pas remis à zéro bloc par bloc.
+            if current_blocks:
+                section_text, section_maps = self._build_text_with_placeholders(current_blocks)
+            else:
+                section_text, section_maps = "", {'formulas': {}, 'images': {}}
 
-                    current_section = [block.content]
-                    current_title = block.content
-                    current_pages = {page.page_number}
-                    current_maps = {'formulas': {}, 'images': {}}
+            full_text = "\n\n".join(part for part in [current_title, section_text] if part)
+            if not full_text:
+                return
 
-                elif block.type in ["text", "list", "formula", "image", "table"]:
-                    part, maps = self._build_text_with_placeholders([block])
-                    current_section.append(part)
-                    current_pages.add(page.page_number)
-                    current_maps['formulas'].update(maps['formulas'])
-                    current_maps['images'].update(maps['images'])
-
-        if current_section:
-            chunk_text = "\n\n".join(current_section)
-            sub_chunks = self.splitter.split_text(chunk_text) if len(chunk_text) > self.chunk_size * 1.5 else [chunk_text]
+            sub_chunks = (
+                self.splitter.split_text(full_text)
+                if len(full_text) > self.chunk_size * 1.5
+                else [full_text]
+            )
 
             for sub_chunk in sub_chunks:
                 expanded_text, formulas_used, images_used = self._expand_placeholders_and_collect_metadata(
-                    sub_chunk, current_maps
+                    sub_chunk, section_maps
                 )
                 chunk = self._create_chunk(
                     expanded_text, doc, list(current_pages), chunk_counter,
@@ -232,11 +211,24 @@ class SmartTextSplitter:
                         'image_ids': [i.get('image_id') for i in images_used if i.get('image_id')],
                         'image_paths': [i.get('image_path') for i in images_used if i.get('image_path')],
                         'images': images_used,
-                        'formulas': formulas_used
+                        'formulas': formulas_used,
                     }
                 )
                 chunks.append(chunk)
                 chunk_counter += 1
+
+        for page in doc.pages:
+            for block in page.content_blocks:
+                if block.type == "title":
+                    flush_section()
+                    current_blocks = []
+                    current_title = block.content
+                    current_pages = {page.page_number}
+                elif block.type in ["text", "list", "formula", "image", "table"]:
+                    current_blocks.append(block)
+                    current_pages.add(page.page_number)
+
+        flush_section()
 
         for chunk in chunks:
             chunk.total_chunks = len(chunks)
