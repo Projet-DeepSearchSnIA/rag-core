@@ -95,10 +95,11 @@ class ExtractedDocument:
 
     @staticmethod
     def create_new(source_file: str, uploaded_url: str):
+        import os
         return ExtractedDocument(
             document_id=str(uuid.uuid4()),
             source_file=uploaded_url,
-            filename=source_file.split('/')[-1],
+            filename=os.path.basename(source_file.replace('\\', '/')),
             extraction_date=datetime.now().isoformat(),
             metadata=DocumentMetadata(),
             pages=[],
