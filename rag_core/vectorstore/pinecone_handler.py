@@ -64,10 +64,10 @@ class PineconeInferenceUploader:
 
         metadata['document_id'] = chunk.get('document_id', '')
         metadata['document_name'] = chunk.get('document_name', '')
-        metadata['publication_id'] = chunk.get('publication_id')
-        metadata['attachment_id'] = chunk.get('attachment_id')
 
         chunk_meta = chunk.get('metadata', {})
+        metadata['publication_id'] = chunk_meta.get('publication_id')
+        metadata['attachment_id'] = chunk_meta.get('attachment_id')
         metadata['user_id'] = chunk_meta.get('user_id')
         metadata['is_public'] = chunk_meta.get('is_public', False)
         metadata['chunk_index'] = chunk.get('chunk_index', 0)
@@ -186,11 +186,13 @@ class PineconeInferenceUploader:
                 else:
                     texts = [r['metadata'].get('text', '') for r in records]
                     embeds = self.pc.inference.embed(model=self.embed_model, inputs=texts)
+                    embed_items = embeds.data if hasattr(embeds, 'data') else list(embeds)
                     vectors = []
-                    for r, e in zip(records, embeds):
+                    for r, e in zip(records, embed_items):
+                        values = e['values'] if isinstance(e, dict) else e.values
                         vectors.append({
                             'id': r['id'],
-                            'values': e['values'] if isinstance(e, dict) else e.values,
+                            'values': values,
                             'metadata': r['metadata']
                         })
                     self.index.upsert(vectors=vectors, namespace=namespace)
@@ -209,9 +211,10 @@ class PineconeInferenceUploader:
                             self.index.upsert_records(namespace=namespace, records=[record_item])
                         else:
                             embed = self.pc.inference.embed(model=self.embed_model, inputs=[record['metadata'].get('text', '')])
-                            e = embed[0]
+                            e = embed.data[0] if hasattr(embed, 'data') else embed[0]
+                            values = e['values'] if isinstance(e, dict) else e.values
                             self.index.upsert(
-                                vectors=[{'id': record['id'], 'values': e['values'] if isinstance(e, dict) else e.values, 'metadata': record['metadata']}],
+                                vectors=[{'id': record['id'], 'values': values, 'metadata': record['metadata']}],
                                 namespace=namespace
                             )
                         uploaded += 1
