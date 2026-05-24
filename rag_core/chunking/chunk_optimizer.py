@@ -217,9 +217,7 @@ class ChunkOptimizer:
         for i, chunk in enumerate(chunks):
             chunk.chunk_index = i
             chunk.total_chunks = total
-            if not chunk.chunk_id.endswith(f"_{i}"):
-                base_id = chunk.chunk_id.rsplit('_', 1)[0]
-                chunk.chunk_id = f"{base_id}_{i}"
+            chunk.chunk_id = f"{chunk.document_id}_chunk_{i}"
         return chunks
 
     def _normalize_text(self, text: str) -> str:
