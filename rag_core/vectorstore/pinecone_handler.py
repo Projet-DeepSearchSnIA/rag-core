@@ -185,7 +185,11 @@ class PineconeInferenceUploader:
                     uploaded += len(records)
                 else:
                     texts = [r['metadata'].get('text', '') for r in records]
-                    embeds = self.pc.inference.embed(model=self.embed_model, inputs=texts)
+                    embeds = self.pc.inference.embed(
+                        model=self.embed_model,
+                        inputs=texts,
+                        parameters={"input_type": "passage", "truncate": "END"}
+                    )
                     embed_items = embeds.data if hasattr(embeds, 'data') else list(embeds)
                     vectors = []
                     for r, e in zip(records, embed_items):
@@ -210,7 +214,11 @@ class PineconeInferenceUploader:
                             record_item.update(flat_meta)
                             self.index.upsert_records(namespace=namespace, records=[record_item])
                         else:
-                            embed = self.pc.inference.embed(model=self.embed_model, inputs=[record['metadata'].get('text', '')])
+                            embed = self.pc.inference.embed(
+                                model=self.embed_model,
+                                inputs=[record['metadata'].get('text', '')],
+                                parameters={"input_type": "passage", "truncate": "END"}
+                            )
                             e = embed.data[0] if hasattr(embed, 'data') else embed[0]
                             values = e['values'] if isinstance(e, dict) else e.values
                             self.index.upsert(
