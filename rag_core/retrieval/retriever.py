@@ -147,7 +147,8 @@ class PineconeRetriever:
                 inputs=[query],
                 parameters={"input_type": self.input_type, "truncate": "END"}
             )
-            vec = emb_response[0]["values"] if isinstance(emb_response[0], dict) else emb_response[0].values
+            emb_item = emb_response.data[0] if hasattr(emb_response, 'data') else emb_response[0]
+            vec = emb_item['values'] if isinstance(emb_item, dict) else emb_item.values
         except Exception as e:
             logger.error("erreur embedding: %s", e)
             raise
