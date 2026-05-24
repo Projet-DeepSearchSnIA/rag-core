@@ -82,8 +82,8 @@ class PineconeInferenceUploader:
             metadata['page_numbers'] = str(pages)
             metadata['first_page'] = 0
 
-        metadata['document_title'] = chunk_meta.get('document_title', '')[:200]
-        metadata['document_author'] = chunk_meta.get('document_author', '')[:200]
+        metadata['document_title'] = (chunk_meta.get('document_title') or '')[:200]
+        metadata['document_author'] = (chunk_meta.get('document_author') or '')[:200]
         section = chunk_meta.get('section_title', '')
         if section:
             metadata['section_title'] = section[:200]
