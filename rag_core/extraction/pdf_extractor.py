@@ -154,14 +154,21 @@ class PDFExtractor:
         return doc
 
     def _extract_metadata(self, pdf_doc, default_metadata=None, taille_mo=None) -> DocumentMetadata:
-        metadata = pdf_doc.metadata
+        metadata = dict(pdf_doc.metadata) if pdf_doc.metadata else {}
+
+        authors = []
+        if default_metadata and default_metadata.get('author'):
+            authors = default_metadata['author']
+        elif metadata.get('author'):
+            author_val = metadata['author']
+            if isinstance(author_val, list):
+                authors = author_val
+            elif isinstance(author_val, str) and author_val.strip():
+                authors = [author_val.strip()]
 
         if default_metadata:
             if (not metadata.get('title') or metadata.get('title') == '') and default_metadata.get('title'):
                 metadata['title'] = default_metadata['title']
-            metadata['list_author'] = []
-            if default_metadata.get('author'):
-                metadata['list_author'] = default_metadata['author']
             if (not metadata.get('subject') or metadata.get('subject') == '') and default_metadata.get('subject'):
                 metadata['subject'] = default_metadata['subject']
             if (not metadata.get('keywords') or metadata.get('keywords') == '') and default_metadata.get('keywords'):
@@ -169,7 +176,7 @@ class PDFExtractor:
 
         return DocumentMetadata(
             title=metadata.get('title'),
-            author=metadata.get('list_author') if metadata.get('list_author') != [] else (metadata.get('author') if metadata.get('author') else []),
+            author=authors,
             subject=metadata.get('subject'),
             keywords=metadata.get('keywords', '').split(',') if metadata.get('keywords') else [],
             creation_date=metadata.get('creationDate'),
@@ -448,6 +455,12 @@ class PDFExtractor:
             if not latex:
                 return None
 
+            raw_text = ""
+            for line in block.get("lines", []):
+                for span in line.get("spans", []):
+                    raw_text += span.get("text", "") + " "
+            raw_text = raw_text.strip()
+
             return ContentBlock(
                 type="formula",
                 content=latex,
@@ -459,7 +472,7 @@ class PDFExtractor:
                     y1=bbox[3],
                     page=page_num + 1
                 ),
-                metadata={"raw_text": block.get("text", "")}
+                metadata={"raw_text": raw_text}
             )
         except Exception:
             return None
