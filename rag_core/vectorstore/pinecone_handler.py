@@ -50,7 +50,10 @@ class PineconeInferenceUploader:
                 }
             )
 
+            deadline = time.time() + 120
             while not self.pc.describe_index(self.index_name).status['ready']:
+                if time.time() > deadline:
+                    raise TimeoutError(f"index '{self.index_name}' not ready after 120s")
                 time.sleep(1)
 
             self.index = self.pc.Index(self.index_name)
