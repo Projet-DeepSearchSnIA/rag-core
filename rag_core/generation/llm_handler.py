@@ -128,35 +128,58 @@ class LLMHandler:
 
 
 class RAGPipeline:
-    """pipeline RAG complet : retrieval + generation"""
+    """pipeline RAG complet : retrieval + generation.
 
-    def __init__(self, llm_handler: LLMHandler, vector_store_handler, embedding_model):
-        self.llm = llm_handler
+    Supporte deux modes d'initialisation :
+    - moderne  : RAGPipeline(retriever=<PineconeRetriever>, llm=<LLMHandler>)
+    - legacy   : RAGPipeline(<LLMHandler>, <vector_store>, <embedding_model>)
+    """
+
+    def __init__(
+        self,
+        llm_handler: Optional[LLMHandler] = None,
+        vector_store_handler=None,
+        embedding_model=None,
+        *,
+        retriever=None,
+        llm: Optional[LLMHandler] = None,
+    ):
+        self.llm = llm if llm is not None else llm_handler
+        self.retriever = retriever
         self.vector_store = vector_store_handler
         self.embedding_model = embedding_model
+        if self.llm is None:
+            raise ValueError("llm ou llm_handler requis")
         logger.info("RAGPipeline initialisé")
 
     def ask(self, question: str, top_k: int = 5, min_score: float = 0.5, **kwargs) -> Dict:
         logger.info("question RAG: %s", question)
 
-        query_embedding = self.embedding_model.encode([question])[0].tolist()
-        ids, scores, metadatas = self.vector_store.search(query_embedding=query_embedding, top_k=top_k)
-
-        if not ids:
-            return {
-                'response': "Je n'ai pas trouvé de documents pertinents pour répondre à cette question dans ma base de connaissances.",
-                'cited_sources': [], 'all_sources': [], 'num_sources_used': 0
-            }
-
-        retrieved_chunks = [
-            {'id': id_, 'score': score, 'text': meta.get('text', ''), 'metadata': meta}
-            for id_, score, meta in zip(ids, scores, metadatas)
-            if score >= min_score
-        ]
+        if self.retriever is not None:
+            if hasattr(self.retriever, 'retrieve'):
+                chunks = self.retriever.retrieve(query=question, top_k=top_k)
+                retrieved_chunks = [c.to_dict() for c in chunks]
+            elif hasattr(self.retriever, 'search'):
+                ids, scores, metadatas = self.retriever.search(query=question, top_k=top_k)
+                retrieved_chunks = [
+                    {'id': id_, 'score': score, 'text': meta.get('text', ''), 'metadata': meta}
+                    for id_, score, meta in zip(ids, scores, metadatas)
+                    if score >= min_score
+                ]
+            else:
+                retrieved_chunks = []
+        else:
+            query_embedding = self.embedding_model.encode([question])[0].tolist()
+            ids, scores, metadatas = self.vector_store.search(query_embedding=query_embedding, top_k=top_k)
+            retrieved_chunks = [
+                {'id': id_, 'score': score, 'text': meta.get('text', ''), 'metadata': meta}
+                for id_, score, meta in zip(ids, scores, metadatas)
+                if score >= min_score
+            ]
 
         if not retrieved_chunks:
             return {
-                'response': "Les documents trouvés ne semblent pas assez pertinents pour répondre à cette question.",
+                'response': "Je n'ai pas trouvé de documents pertinents pour répondre à cette question dans ma base de connaissances.",
                 'cited_sources': [], 'all_sources': [], 'num_sources_used': 0
             }
 
