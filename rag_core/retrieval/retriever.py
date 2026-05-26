@@ -1,5 +1,6 @@
 from typing import List, Dict, Optional, Any
 import json
+import time
 from dataclasses import dataclass
 
 from pinecone import Pinecone
@@ -228,21 +229,31 @@ class PineconeRetriever:
         rerank: bool = True,
         filter: Optional[Dict] = None
     ) -> List[EnrichedChunk]:
+        t0 = time.time()
         logger.info("retrieval — query: %s...", query[:80])
 
         candidates = self._query_pinecone(query, retrieve_k, filter=filter)
+        t_embed_query = time.time() - t0
 
         if not candidates:
-            logger.info("aucun résultat")
+            logger.info("aucun résultat (%.2fs)", t_embed_query)
             return []
 
+        t_rerank = time.time()
         if rerank:
             ranked_docs = self._rerank(query, candidates, min(retrieve_k, max_k))
         else:
             ranked_docs = candidates[:min(top_k, max_k)]
+        t_rerank = time.time() - t_rerank
 
         if rerank:
             filtered = [d for d in ranked_docs if d.get("rerank_score") is not None and d.get("rerank_score") >= rerank_threshold]
+            n_filtered = len(ranked_docs) - len(filtered)
+            if n_filtered > 0:
+                logger.info(
+                    "%d chunk(s) éliminés par le seuil rerank=%.2f (scores trop bas)",
+                    n_filtered, rerank_threshold
+                )
         else:
             filtered = ranked_docs
 
@@ -257,8 +268,9 @@ class PineconeRetriever:
         enriched_chunks = [self._create_enriched_chunk(doc) for doc in final_docs]
 
         logger.info(
-            "%d chunks enrichis, formules: %d, images: %d",
+            "%d chunks enrichis — embed+query: %.2fs, rerank: %.2fs, total: %.2fs — formules: %d, images: %d",
             len(enriched_chunks),
+            t_embed_query, t_rerank, time.time() - t0,
             sum(1 for c in enriched_chunks if c.has_formulas),
             sum(1 for c in enriched_chunks if c.has_images)
         )

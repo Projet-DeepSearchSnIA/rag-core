@@ -79,6 +79,7 @@ class PDFExtractor:
         document_name_without_ext: str = ""
     ) -> ExtractedDocument:
         start_time = time.time()
+        self._math_ocr_failures = 0
 
         logger.info("extraction de: %s", pdf_path)
 
@@ -143,12 +144,20 @@ class PDFExtractor:
 
         doc.stats.total_pages = len(doc.pages)
         doc.stats.processing_time_seconds = time.time() - start_time
+        doc.stats.math_ocr_failures = self._math_ocr_failures
+
+        if self._math_ocr_failures > 0:
+            logger.warning(
+                "%d bloc(s) mathématiques non convertis en LaTeX (math OCR échoué ou indisponible)",
+                self._math_ocr_failures
+            )
 
         logger.info(
-            "extraction terminée en %.2fs — pages: %d, texte: %d, images: %d, tableaux: %d, ocr: %d",
+            "extraction terminée en %.2fs — pages: %d, texte: %d, images: %d, tableaux: %d, ocr: %d, math_echecs: %d",
             doc.stats.processing_time_seconds, doc.stats.total_pages,
             doc.stats.total_text_blocks, doc.stats.total_images,
-            doc.stats.total_tables, doc.stats.pages_with_ocr
+            doc.stats.total_tables, doc.stats.pages_with_ocr,
+            doc.stats.math_ocr_failures
         )
 
         return doc
@@ -273,6 +282,10 @@ class PDFExtractor:
                             if formula_block:
                                 blocks.append(formula_block)
                                 continue
+                            else:
+                                self._math_ocr_failures += 1
+                        else:
+                            self._math_ocr_failures += 1
 
                     is_title = self._is_likely_title(block)
 

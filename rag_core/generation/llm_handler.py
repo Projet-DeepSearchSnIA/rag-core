@@ -57,6 +57,7 @@ class LLMHandler:
         max_retries = 3
         retry_delay = 2
         response_text = ""
+        t0 = time.time()
 
         for attempt in range(max_retries):
             try:
@@ -71,7 +72,7 @@ class LLMHandler:
 
                 completion = self.client.chat.completions.create(**params)
                 response_text = completion.choices[0].message.content
-                logger.info("réponse générée (%d chars)", len(response_text))
+                logger.info("réponse générée en %.2fs (%d chars)", time.time() - t0, len(response_text))
                 break
 
             except Exception as e:
@@ -82,6 +83,7 @@ class LLMHandler:
                     time.sleep(retry_delay)
                     retry_delay *= 2
                 else:
+                    logger.error("génération échouée après %.2fs (%d tentative(s))", time.time() - t0, attempt + 1)
                     response_text = "Désolé, je n'ai pas pu générer de réponse. Erreur technique (HuggingFace)."
                     break
 
