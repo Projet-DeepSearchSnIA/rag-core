@@ -3,9 +3,19 @@ Fixtures partagées entre tous les fichiers de test.
 
 On centralise ici la construction d'ExtractedDocument synthétique pour ne
 pas réécrire le même boilerplate dans chaque fichier.
+
+Fixtures live (marqueur @pytest.mark.live) :
+  pinecone_creds  — clés Pinecone lues depuis .env, skip automatique si absentes
+  hf_token        — token HuggingFace lu depuis .env, skip automatique si absent
+  live_retriever  — PineconeRetriever connecté à l'index réel
+  live_llm        — LLMHandler connecté à HuggingFace
 """
+import os
 import uuid
 import pytest
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from rag_core.extraction.document_schemas import (
     ContentBlock,
@@ -93,3 +103,64 @@ def doc_long():
     """Un document avec beaucoup de texte pour forcer plusieurs chunks."""
     # ~600 chars, suffisant pour dépasser chunk_size=100
     return make_doc(["mot " * 150])
+
+
+# ---------------------------------------------------------------------------
+# Fixtures live — skip automatique si les clés .env sont absentes
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def pinecone_creds():
+    """
+    Retourne (api_key, index_name) depuis .env.
+    Skip le test si l'une ou l'autre est absente.
+    Usage : def test_foo(pinecone_creds): api_key, index_name = pinecone_creds
+    """
+    api_key = os.getenv("PINECONE_API_KEY")
+    index_name = os.getenv("PINECONE_INDEX_NAME")
+    if not api_key:
+        pytest.skip("PINECONE_API_KEY absente du .env")
+    if not index_name:
+        pytest.skip("PINECONE_INDEX_NAME absente du .env")
+    return api_key, index_name
+
+
+@pytest.fixture(scope="session")
+def hf_token():
+    """
+    Retourne le token HuggingFace depuis .env.
+    Skip le test si absent.
+    """
+    token = os.getenv("HF_TOKEN")
+    if not token:
+        pytest.skip("HF_TOKEN absent du .env")
+    return token
+
+
+@pytest.fixture(scope="session")
+def live_retriever(pinecone_creds):
+    """
+    PineconeRetriever connecté à l'index réel.
+    Scope session : la connexion est ouverte une seule fois pour toute la session de tests.
+    """
+    from rag_core.retrieval.retriever import PineconeRetriever
+    api_key, index_name = pinecone_creds
+    embed_model = os.getenv("PINECONE_EMBED_MODEL", "multilingual-e5-large")
+    rerank_model = os.getenv("PINECONE_RERANK_MODEL", "bge-reranker-v2-m3")
+    return PineconeRetriever(
+        api_key=api_key,
+        index_name=index_name,
+        embed_model=embed_model,
+        rerank_model=rerank_model,
+    )
+
+
+@pytest.fixture(scope="session")
+def live_llm(hf_token):
+    """
+    LLMHandler connecté à HuggingFace.
+    Scope session : le client est instancié une seule fois.
+    """
+    from rag_core.generation.llm_handler import LLMHandler
+    model = os.getenv("LLM_MODEL", "meta-llama/Llama-3.1-8B-Instruct")
+    return LLMHandler(model_name=model, api_key=hf_token)
