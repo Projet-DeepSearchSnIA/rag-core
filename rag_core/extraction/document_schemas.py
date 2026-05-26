@@ -77,6 +77,7 @@ class ExtractionStats:
     processing_time_seconds: float
     extraction_method: str
     errors: List[str] = field(default_factory=list)
+    math_ocr_failures: int = 0
 
 
 @dataclass
