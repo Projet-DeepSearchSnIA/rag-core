@@ -42,7 +42,9 @@ def main():
         index_name=args.index,
         embed_model=embed_cfg.get("model", "multilingual-e5-large"),
         rerank_model=ret_cfg.get("rerank_model", "bge-reranker-v2-m3"),
-        namespace=args.namespace
+        namespace=args.namespace,
+        truncation_max_tokens=ret_cfg.get("truncation_max_tokens", 200),
+        truncation_chars_per_token=ret_cfg.get("truncation_chars_per_token", 4)
     )
 
     chunks = retriever.retrieve(
@@ -58,7 +60,9 @@ def main():
         model_name=gen_cfg.get("model", "meta-llama/Llama-3.1-8B-Instruct"),
         api_key=hf_token,
         temperature=gen_cfg.get("temperature", 0.7),
-        max_tokens=gen_cfg.get("max_tokens", 1000)
+        max_tokens=gen_cfg.get("max_tokens", 1000),
+        max_retries=gen_cfg.get("max_retries", 3),
+        retry_delay_seconds=gen_cfg.get("retry_delay_seconds", 2)
     )
 
     retrieved_chunks = [c.to_dict() for c in chunks]
