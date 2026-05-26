@@ -61,7 +61,9 @@ class PineconeRetriever:
         index_name: str,
         embed_model: str,
         rerank_model: str,
-        namespace: str = "__default__"
+        namespace: str = "__default__",
+        truncation_max_tokens: int = 200,
+        truncation_chars_per_token: int = 4
     ):
         self.pc = Pinecone(api_key=api_key)
         self.index = self.pc.Index(index_name)
@@ -69,6 +71,8 @@ class PineconeRetriever:
         self.rerank_model = rerank_model
         self.namespace = namespace
         self.input_type = "query"
+        self.truncation_max_tokens = truncation_max_tokens
+        self.truncation_chars_per_token = truncation_chars_per_token
 
         logger.info("retriever initialisé — index: %s, embed: %s, rerank: %s", index_name, embed_model, rerank_model)
 
@@ -96,11 +100,13 @@ class PineconeRetriever:
                 return [v.strip() for v in value.split(',') if v.strip()]
         return []
 
-    def _truncate_for_rerank(self, text: str, max_tokens: int = 200) -> str:
-        # ratio 4 chars/token, corrigé par rapport à noxa (qui utilisait 2)
+    def _truncate_for_rerank(self, text: str, max_tokens: Optional[int] = None) -> str:
+        # ratio chars/token configurable, corrigé par rapport à noxa (qui utilisait 2)
         if not text:
             return ""
-        max_chars = max_tokens * 4
+        tokens = max_tokens if max_tokens is not None else getattr(self, 'truncation_max_tokens', 200)
+        chars_per_token = getattr(self, 'truncation_chars_per_token', 4)
+        max_chars = tokens * chars_per_token
         return text[:max_chars] if len(text) > max_chars else text
 
     def _normalize_metadata(self, meta: Dict) -> Dict:
