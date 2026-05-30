@@ -20,6 +20,8 @@ extraction:
   math_ocr:
     enabled: true
     device: "cuda"
+    model_id: "OleehyO/latex-formulas"
+    model_subfolder: "fine-tuned-model"
 
   preprocessing:
     remove_headers_footers: true

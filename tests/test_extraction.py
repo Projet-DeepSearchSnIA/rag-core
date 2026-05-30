@@ -1,11 +1,21 @@
+import yaml
+from pathlib import Path
+
 from rag_core.extraction.pdf_extractor import PDFExtractor
 from rag_core.extraction.document_schemas import (
     ExtractedDocument, ContentBlock, BoundingBox, DocumentMetadata
 )
 
+_CONFIG_PATH = Path(__file__).parent.parent / "configs" / "extraction_config.yaml"
+
+
+def _load_extraction_cfg() -> dict:
+    with open(_CONFIG_PATH, encoding="utf-8") as f:
+        return yaml.safe_load(f)["extraction"]
+
 
 def test_pdf_extractor_init_sans_callback():
-    extractor = PDFExtractor()
+    extractor = PDFExtractor(config=_load_extraction_cfg())
     assert extractor.upload_callback is None
 
 
@@ -13,7 +23,7 @@ def test_pdf_extractor_init_avec_callback():
     def fake_upload(**kwargs):
         return "http://fake-url/image.png"
 
-    extractor = PDFExtractor(upload_callback=fake_upload)
+    extractor = PDFExtractor(config=_load_extraction_cfg(), upload_callback=fake_upload)
     assert extractor.upload_callback is fake_upload
 
 
@@ -59,5 +69,5 @@ def test_extractor_callback_non_appele_sans_image():
         appels.append(kwargs)
         return "http://fake/img.png"
 
-    PDFExtractor(upload_callback=fake_upload)
+    PDFExtractor(config=_load_extraction_cfg(), upload_callback=fake_upload)
     assert appels == [], "le callback ne doit pas être appelé à l'initialisation"
