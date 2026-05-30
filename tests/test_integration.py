@@ -16,7 +16,7 @@ import pytest
 
 logger = logging.getLogger(__name__)
 
-from tests.conftest import make_doc
+from tests.conftest import load_baseline, make_doc
 from rag_core.chunking.text_splitter import SmartTextSplitter
 from rag_core.chunking.chunk_optimizer import ChunkOptimizer
 from rag_core.vectorstore.pinecone_handler import PineconeInferenceUploader
@@ -39,42 +39,37 @@ def _make_full_doc():
 
 def _uploader_sans_reseau():
     # On bypasse __init__ pour ne pas ouvrir de connexion Pinecone.
+    cfg = load_baseline()
     uploader = object.__new__(PineconeInferenceUploader)
-    cloud = os.getenv("PINECONE_CLOUD")
-    region = os.getenv("PINECONE_REGION")
-    embed_model = os.getenv("PINECONE_EMBED_MODEL")
-    index_name = os.getenv("PINECONE_INDEX_NAME")
-    if not cloud:
-        logger.warning("PINECONE_CLOUD absente du .env — requis pour les tests de contrat")
-    if not region:
-        logger.warning("PINECONE_REGION absente du .env — requis pour les tests de contrat")
-    if not embed_model:
-        logger.warning("PINECONE_EMBED_MODEL absente du .env — requis pour les tests de contrat")
-    if not index_name:
-        logger.warning("PINECONE_INDEX_NAME absente du .env — requis pour les tests de contrat")
-    uploader.cloud = cloud
-    uploader.region = region
-    uploader.embed_model = embed_model
-    uploader.index_name = index_name
+    uploader.cloud = cfg.get("vectorstore", {}).get("cloud")
+    uploader.region = cfg.get("vectorstore", {}).get("region")
+    uploader.embed_model = cfg.get("embedding", {}).get("model")
+    uploader.index_name = os.getenv("PINECONE_INDEX_NAME")
+    if not uploader.cloud:
+        logger.warning("vectorstore.cloud absent de baseline.yaml")
+    if not uploader.region:
+        logger.warning("vectorstore.region absent de baseline.yaml")
+    if not uploader.embed_model:
+        logger.warning("embedding.model absent de baseline.yaml")
+    if not uploader.index_name:
+        logger.warning("PINECONE_INDEX_NAME absente du .env")
     return uploader
 
 
 def _retriever_sans_reseau():
     # Même principe côté retrieval.
+    cfg = load_baseline()
     retriever = object.__new__(PineconeRetriever)
-    embed_model = os.getenv("PINECONE_EMBED_MODEL")
-    rerank_model = os.getenv("PINECONE_RERANK_MODEL")
-    namespace = os.getenv("PINECONE_NAMESPACE")
-    if not embed_model:
-        logger.warning("PINECONE_EMBED_MODEL absente du .env — requis pour les tests de contrat")
-    if not rerank_model:
-        logger.warning("PINECONE_RERANK_MODEL absente du .env — requis pour les tests de contrat")
-    if not namespace:
-        logger.warning("PINECONE_NAMESPACE absente du .env — requis pour les tests de contrat")
-    retriever.embed_model = embed_model
-    retriever.rerank_model = rerank_model
-    retriever.namespace = namespace
+    retriever.embed_model = cfg.get("embedding", {}).get("model")
+    retriever.rerank_model = cfg.get("retrieval", {}).get("rerank_model")
+    retriever.namespace = os.getenv("PINECONE_NAMESPACE")
     retriever.input_type = "query"
+    if not retriever.embed_model:
+        logger.warning("embedding.model absent de baseline.yaml")
+    if not retriever.rerank_model:
+        logger.warning("retrieval.rerank_model absent de baseline.yaml")
+    if not retriever.namespace:
+        logger.warning("PINECONE_NAMESPACE absente du .env")
     return retriever
 
 
@@ -338,10 +333,10 @@ class TestLLMHandlerMocked:
 
     def _make_llm(self):
         # On patche InferenceClient à la construction pour éviter une vraie connexion.
-        model = os.getenv("LLM_MODEL")
+        model = load_baseline().get("generation", {}).get("model")
         if not model:
-            logger.warning("LLM_MODEL absente du .env — requis pour les tests LLM")
-            pytest.skip("LLM_MODEL absente du .env")
+            logger.warning("generation.model absent de baseline.yaml")
+            pytest.skip("generation.model absent de baseline.yaml")
         with patch("rag_core.generation.llm_handler.InferenceClient"):
             llm = LLMHandler(model_name=model, api_key="hf-fake-token")
         llm.client = MagicMock()

@@ -232,8 +232,8 @@ class PDFExtractor:
             for entry in pdf_doc.get_toc():
                 level, title, page = entry
                 toc.append(TOCEntry(title=title, level=level, page=page))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("extraction du sommaire (TOC) échouée: %s", e)
         return toc
 
     def _is_scanned_pdf(self, pdf_doc, sample_pages: int = 3) -> bool:

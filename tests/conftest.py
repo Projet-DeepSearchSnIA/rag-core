@@ -1,19 +1,21 @@
 """
 Fixtures partagées entre tous les fichiers de test.
 
-On centralise ici la construction d'ExtractedDocument synthétique pour ne
-pas réécrire le même boilerplate dans chaque fichier.
+Centralise la construction d'ExtractedDocument synthétique et la lecture de la
+config baseline.yaml pour les tests live.
 
-Fixtures live (marqueur @pytest.mark.live) :
-  pinecone_creds  — clés Pinecone lues depuis .env, skip automatique si absentes
-  hf_token        — token HuggingFace lu depuis .env, skip automatique si absent
-  live_retriever  — PineconeRetriever connecté à l'index réel
-  live_llm        — LLMHandler connecté à HuggingFace
+Convention :
+  - secrets (PINECONE_API_KEY, HF_TOKEN) -> .env
+  - déploiement (PINECONE_INDEX_NAME, PINECONE_NAMESPACE) -> .env
+  - tout le reste (modèles, cloud, region) -> configs/baseline.yaml
 """
 import logging
 import os
 import uuid
+from pathlib import Path
+
 import pytest
+import yaml
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -29,6 +31,15 @@ from rag_core.extraction.document_schemas import (
 )
 from rag_core.chunking.text_splitter import DocumentChunk
 from rag_core.retrieval.retriever import PineconeRetriever
+
+
+BASELINE_PATH = Path(__file__).parent.parent / "configs" / "baseline.yaml"
+
+
+def load_baseline() -> dict:
+    """Lit configs/baseline.yaml — la source unique de vérité pour les modèles et hyperparamètres."""
+    with open(BASELINE_PATH, encoding="utf-8") as f:
+        return yaml.safe_load(f)
 
 
 def make_doc(pages_text: list[str]) -> ExtractedDocument:
@@ -92,15 +103,20 @@ def _retriever_vide():
 
 
 # ---------------------------------------------------------------------------
-# Fixtures live — skip automatique si les clés .env sont absentes
+# Fixtures live — skip automatique si les clés .env ou YAML manquent
 # ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def baseline_cfg():
+    """Config YAML chargée une fois pour la session."""
+    return load_baseline()
+
 
 @pytest.fixture(scope="session")
 def pinecone_creds():
     """
     Retourne (api_key, index_name) depuis .env.
     Skip le test si l'une ou l'autre est absente.
-    Usage : def test_foo(pinecone_creds): api_key, index_name = pinecone_creds
     """
     api_key = os.getenv("PINECONE_API_KEY")
     index_name = os.getenv("PINECONE_INDEX_NAME")
@@ -113,10 +129,7 @@ def pinecone_creds():
 
 @pytest.fixture(scope="session")
 def hf_token():
-    """
-    Retourne le token HuggingFace depuis .env.
-    Skip le test si absent.
-    """
+    """Token HuggingFace depuis .env, skip si absent."""
     token = os.getenv("HF_TOKEN")
     if not token:
         pytest.skip("HF_TOKEN absent du .env")
@@ -124,22 +137,19 @@ def hf_token():
 
 
 @pytest.fixture(scope="session")
-def live_retriever(pinecone_creds):
-    """
-    PineconeRetriever connecté à l'index réel.
-    Scope session : la connexion est ouverte une seule fois pour toute la session de tests.
-    """
+def live_retriever(pinecone_creds, baseline_cfg):
+    """PineconeRetriever connecté à l'index réel."""
     from rag_core.retrieval.retriever import PineconeRetriever
     api_key, index_name = pinecone_creds
-    embed_model = os.getenv("PINECONE_EMBED_MODEL")
-    rerank_model = os.getenv("PINECONE_RERANK_MODEL")
+    embed_model = baseline_cfg.get("embedding", {}).get("model")
+    rerank_model = baseline_cfg.get("retrieval", {}).get("rerank_model")
     namespace = os.getenv("PINECONE_NAMESPACE")
     if not embed_model:
-        logger.error("PINECONE_EMBED_MODEL absente du .env")
-        pytest.skip("PINECONE_EMBED_MODEL absente du .env")
+        logger.error("embedding.model absent de configs/baseline.yaml")
+        pytest.skip("embedding.model absent de baseline.yaml")
     if not rerank_model:
-        logger.error("PINECONE_RERANK_MODEL absente du .env")
-        pytest.skip("PINECONE_RERANK_MODEL absente du .env")
+        logger.error("retrieval.rerank_model absent de configs/baseline.yaml")
+        pytest.skip("retrieval.rerank_model absent de baseline.yaml")
     if not namespace:
         logger.error("PINECONE_NAMESPACE absente du .env")
         pytest.skip("PINECONE_NAMESPACE absente du .env")
@@ -154,15 +164,12 @@ def live_retriever(pinecone_creds):
 
 
 @pytest.fixture(scope="session")
-def live_llm(hf_token):
-    """
-    LLMHandler connecté à HuggingFace.
-    Scope session : le client est instancié une seule fois.
-    """
+def live_llm(hf_token, baseline_cfg):
+    """LLMHandler connecté à HuggingFace."""
     from rag_core.generation.llm_handler import LLMHandler
-    model = os.getenv("LLM_MODEL")
+    model = baseline_cfg.get("generation", {}).get("model")
     if not model:
-        logger.error("LLM_MODEL absente du .env")
-        pytest.skip("LLM_MODEL absente du .env")
+        logger.error("generation.model absent de configs/baseline.yaml")
+        pytest.skip("generation.model absent de baseline.yaml")
     assert model
     return LLMHandler(model_name=model, api_key=hf_token)

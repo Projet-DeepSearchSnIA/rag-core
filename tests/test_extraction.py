@@ -1,17 +1,13 @@
-import yaml
-from pathlib import Path
+from tests.conftest import load_baseline
 
 from rag_core.extraction.pdf_extractor import PDFExtractor
 from rag_core.extraction.document_schemas import (
     ExtractedDocument, ContentBlock, BoundingBox, DocumentMetadata
 )
 
-_CONFIG_PATH = Path(__file__).parent.parent / "configs" / "extraction_config.yaml"
-
 
 def _load_extraction_cfg() -> dict:
-    with open(_CONFIG_PATH, encoding="utf-8") as f:
-        return yaml.safe_load(f)["extraction"]
+    return load_baseline()["extraction"]
 
 
 def test_pdf_extractor_init_sans_callback():

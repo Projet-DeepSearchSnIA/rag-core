@@ -33,6 +33,14 @@ def _require(cfg: dict, key: str, section: str):
     return cfg[key]
 
 
+def _require_section(cfg: dict, section: str) -> dict:
+    sub = cfg.get(section)
+    if not sub:
+        logger.error("Section [%s] manquante dans le fichier de config", section)
+        sys.exit(1)
+    return sub
+
+
 def main():
     parser = argparse.ArgumentParser(description="indexe un PDF dans Pinecone")
     parser.add_argument("pdf_path", help="chemin vers le PDF à indexer")
@@ -49,11 +57,12 @@ def main():
         logger.error("PINECONE_API_KEY absente de l'environnement")
         sys.exit(1)
 
-    extractor = PDFExtractor()
+    extraction_cfg = _require_section(config, "extraction")
+    extractor = PDFExtractor(config=extraction_cfg)
     logger.info("extraction de %s", args.pdf_path)
     doc = extractor.extract_pdf(args.pdf_path, uploaded_url=args.pdf_path)
 
-    chunk_cfg = config.get("chunking") or {}
+    chunk_cfg = _require_section(config, "chunking")
     splitter = SmartTextSplitter(
         chunk_size=_require(chunk_cfg, "chunk_size", "chunking"),
         chunk_overlap=_require(chunk_cfg, "chunk_overlap", "chunking"),
@@ -65,8 +74,8 @@ def main():
         optimizer = ChunkOptimizer()
         chunks, _ = optimizer.optimize_chunks(chunks)
 
-    embed_cfg = config.get("embedding") or {}
-    vs_cfg = config.get("vectorstore") or {}
+    embed_cfg = _require_section(config, "embedding")
+    vs_cfg = _require_section(config, "vectorstore")
     uploader = PineconeInferenceUploader(
         api_key=api_key,
         index_name=args.index,
