@@ -1,4 +1,36 @@
-# reproduction exacte du pipeline noxa — sert de baseline pour les labs
+# Configuration unique du pipeline RAG.
+# Toutes les valeurs algorithmiques et de modèle vivent ici.
+# Les secrets (PINECONE_API_KEY, HF_TOKEN) restent dans .env.
+# Les valeurs de déploiement (--index, --namespace) sont des arguments CLI.
+
+extraction:
+  raw_dir: data/raw
+  output_dir: data/extracted
+  temp_dir: data/temp
+  pymupdf:
+    extract_images: true
+    extract_tables: true
+    dpi: 300
+    image_format: png
+  doctr:
+    det_arch: db_resnet50
+    reco_arch: crnn_vgg16_bn
+    device: cuda
+    pretrained: true
+    use_for_images: true
+    use_for_scanned: true
+  math_ocr:
+    enabled: true
+    device: cuda
+    model_id: OleehyO/latex-formulas
+    model_subfolder: fine-tuned-model
+  preprocessing:
+    remove_headers_footers: true
+    normalize_whitespace: true
+    merge_hyphenated_words: true
+    extract_urls: true
+    extract_emails: true
+
 chunking:
   strategy: mixed
   chunk_size: 1000
@@ -7,17 +39,28 @@ chunking:
 
 embedding:
   provider: pinecone_inference
-  model: multilingual-e5-large
+  model: llama-text-embed-v2
+
+vectorstore:
+  cloud: aws
+  region: us-east-1
 
 retrieval:
   retrieve_k: 20
   top_k: 5
+  max_k: 12
   rerank: true
   rerank_model: bge-reranker-v2-m3
   rerank_threshold: 0.35
+  truncation_max_tokens: 200
   truncation_chars_per_token: 4
 
 generation:
   model: meta-llama/Llama-3.1-8B-Instruct
   temperature: 0.7
   max_tokens: 1000
+  max_retries: 3
+  retry_delay_seconds: 2
+
+tests:
+  smoke_subprocess_timeout_seconds: 60

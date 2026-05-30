@@ -42,31 +42,66 @@ class PDFExtractor:
             self.config.get('preprocessing', {})
         )
 
-        self.extract_images = self.config.get('pymupdf', {}).get('extract_images', True)
-        self.use_ocr_for_images = self.config.get('doctr', {}).get('use_for_images', True)
-        self.use_ocr_for_scanned = self.config.get('doctr', {}).get('use_for_scanned', True)
-        self.use_math_ocr = self.config.get('math_ocr', {}).get('enabled', True)
-        self.math_ocr_device = self.config.get('math_ocr', {}).get('device', 'cuda')
-        self.output_dir = Path(self.config.get('output_dir', 'data/extracted'))
-        self.temp_dir = Path(self.config.get('temp_dir', 'data/temp'))
+        self.extract_images = self._require_section_cfg('pymupdf', 'extract_images')
+        self.use_ocr_for_images = self._require_section_cfg('doctr', 'use_for_images')
+        self.use_ocr_for_scanned = self._require_section_cfg('doctr', 'use_for_scanned')
+        math_ocr_cfg = self.config.get('math_ocr', {})
+        self.use_math_ocr = math_ocr_cfg.get('enabled')
+        if self.use_math_ocr is None:
+            logger.error("clé 'enabled' manquante dans la config [math_ocr]")
+            raise ValueError("clé 'enabled' manquante dans la config [math_ocr]")
+        self._math_ocr_cfg = math_ocr_cfg
+        output_dir = self.config.get('output_dir')
+        temp_dir = self.config.get('temp_dir')
+        if output_dir is None:
+            logger.error("clé 'output_dir' manquante dans la config")
+            raise ValueError("clé 'output_dir' manquante dans la config")
+        if temp_dir is None:
+            logger.error("clé 'temp_dir' manquante dans la config")
+            raise ValueError("clé 'temp_dir' manquante dans la config")
+        self.output_dir = Path(output_dir)
+        self.temp_dir = Path(temp_dir)
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
+    def _require_section_cfg(self, section: str, key: str):
+        val = self.config.get(section, {}).get(key)
+        if val is None:
+            logger.error("clé '%s' manquante dans la config [%s]", key, section)
+            raise ValueError(f"clé '{key}' manquante dans la config [{section}]")
+        return val
+
     def _init_ocr_handler(self):
         if self.ocr_handler is None:
-            doctr_config = self.config.get('doctr', {})
             self.ocr_handler = DocTROCRHandler(
-                det_arch=doctr_config.get('det_arch', 'db_resnet50'),
-                reco_arch=doctr_config.get('reco_arch', 'crnn_vgg16_bn'),
-                device=doctr_config.get('device', 'cuda'),
-                pretrained=doctr_config.get('pretrained', True)
+                det_arch=self._require_section_cfg('doctr', 'det_arch'),
+                reco_arch=self._require_section_cfg('doctr', 'reco_arch'),
+                device=self._require_section_cfg('doctr', 'device'),
+                pretrained=self._require_section_cfg('doctr', 'pretrained'),
             )
+
+    def _require_math_ocr_cfg(self, key: str):
+        val = self._math_ocr_cfg.get(key)
+        if val is None:
+            logger.error("clé manquante dans la config [math_ocr]: '%s'", key)
+        return val
 
     def _init_math_ocr_handler(self):
         if self.math_ocr_handler is None:
+            model_id = self._require_math_ocr_cfg("model_id")
+            model_subfolder = self._require_math_ocr_cfg("model_subfolder")
+            device = self._require_math_ocr_cfg("device")
+            if not (model_id and model_subfolder and device):
+                logger.error("math OCR désactivé — clés manquantes dans [math_ocr]")
+                self.math_ocr_handler = None
+                return
             try:
-                self.math_ocr_handler = MathOCRHandler(device=self.math_ocr_device)
+                self.math_ocr_handler = MathOCRHandler(
+                    model_id=model_id,
+                    model_subfolder=model_subfolder,
+                    device=device,
+                )
             except Exception as e:
                 logger.warning("ocr math indisponible: %s", e)
                 self.math_ocr_handler = None
@@ -206,8 +241,8 @@ class PDFExtractor:
             for entry in pdf_doc.get_toc():
                 level, title, page = entry
                 toc.append(TOCEntry(title=title, level=level, page=page))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("extraction du sommaire (TOC) échouée: %s", e)
         return toc
 
     def _is_scanned_pdf(self, pdf_doc, sample_pages: int = 3) -> bool:

@@ -1,9 +1,5 @@
+from tests.conftest import _retriever_vide
 from rag_core.retrieval.retriever import PineconeRetriever
-
-
-def _retriever_vide() -> PineconeRetriever:
-    """Instance sans __init__ pour tester les méthodes qui chaînent entre elles."""
-    return object.__new__(PineconeRetriever)
 
 
 def test_truncate_pour_rerank_court():

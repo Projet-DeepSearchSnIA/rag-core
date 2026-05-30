@@ -94,6 +94,41 @@ class ExtractedDocument:
     def to_dict(self):
         return asdict(self)
 
+    @classmethod
+    def from_dict(cls, data: Dict) -> "ExtractedDocument":
+        """Reconstruit un ExtractedDocument depuis un dict (inverse de to_dict)."""
+        meta = data.get("metadata") or {}
+        stats = data.get("stats") or {}
+        pages = []
+        for p in data.get("pages") or []:
+            blocks = []
+            for b in p.get("content_blocks") or []:
+                bbox_data = b.get("bbox")
+                blocks.append(ContentBlock(
+                    type=b["type"], content=b["content"], page_number=b["page_number"],
+                    bbox=BoundingBox(**bbox_data) if bbox_data else None,
+                    metadata=b.get("metadata"), level=b.get("level"),
+                    image_id=b.get("image_id"), image_description=b.get("image_description"),
+                    image_caption=b.get("image_caption"), image_path=b.get("image_path"),
+                    table_structure=b.get("table_structure"),
+                ))
+            pages.append(PageContent(
+                page_number=p["page_number"], content_blocks=blocks,
+                page_text=p.get("page_text", ""),
+                has_images=p.get("has_images", False),
+                has_tables=p.get("has_tables", False),
+                extraction_method=p.get("extraction_method", "pymupdf"),
+                confidence_score=p.get("confidence_score"),
+            ))
+        return cls(
+            document_id=data["document_id"], source_file=data["source_file"],
+            filename=data["filename"], extraction_date=data["extraction_date"],
+            metadata=DocumentMetadata(**meta),
+            pages=pages,
+            table_of_contents=[TOCEntry(**t) for t in (data.get("table_of_contents") or [])],
+            stats=ExtractionStats(**stats),
+        )
+
     @staticmethod
     def create_new(source_file: str, uploaded_url: str):
         import os

@@ -1,8 +1,9 @@
 from typing import List, Dict, Tuple
 from collections import Counter
+from dataclasses import replace
 import re
 
-from rag_core.chunking.text_splitter import DocumentChunk
+from rag_core.chunking.chunk_schemas import ChunkMetadata, DocumentChunk
 from rag_core.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -122,7 +123,7 @@ class ChunkOptimizer:
     def _split_large_chunks(self, chunks: List[DocumentChunk]) -> List[DocumentChunk]:
         result = []
         for chunk in chunks:
-            if chunk.char_count <= self.max_chunk_size or chunk.metadata.get('has_formulas'):
+            if chunk.char_count <= self.max_chunk_size or chunk.metadata.has_formulas:
                 result.append(chunk)
             else:
                 result.extend(self._split_chunk(chunk))
@@ -163,31 +164,29 @@ class ChunkOptimizer:
             all_pages.extend(chunk.page_numbers)
         unique_pages = sorted(list(set(all_pages)))
 
-        merged_metadata = chunks[0].metadata.copy()
-        merged_metadata['merged_from'] = [c.chunk_id for c in chunks]
-
         image_ids, image_paths, images, formulas = [], [], [], []
         has_images, has_formulas = False, False
 
         for c in chunks:
-            meta = c.metadata or {}
-            image_ids.extend(meta.get('image_ids', []))
-            image_paths.extend(meta.get('image_paths', []))
-            images.extend(meta.get('images', []))
-            formulas.extend(meta.get('formulas', []))
-            if meta.get('has_images'):
+            image_ids.extend(c.metadata.image_ids)
+            image_paths.extend(c.metadata.image_paths)
+            images.extend(c.metadata.images)
+            formulas.extend(c.metadata.formulas)
+            if c.metadata.has_images:
                 has_images = True
-            if meta.get('has_formulas'):
+            if c.metadata.has_formulas:
                 has_formulas = True
 
-        merged_metadata.update({
-            'image_ids': list(dict.fromkeys(image_ids)),
-            'image_paths': list(dict.fromkeys(image_paths)),
-            'images': images,
-            'formulas': formulas,
-            'has_images': has_images,
-            'has_formulas': has_formulas,
-        })
+        merged_metadata = replace(
+            chunks[0].metadata,
+            image_ids=list(dict.fromkeys(image_ids)),
+            image_paths=list(dict.fromkeys(image_paths)),
+            images=images,
+            formulas=formulas,
+            has_images=has_images,
+            has_formulas=has_formulas,
+            merged_from=[c.chunk_id for c in chunks],
+        )
 
         return DocumentChunk(
             chunk_id=chunks[0].chunk_id,
@@ -197,10 +196,11 @@ class ChunkOptimizer:
             page_numbers=unique_pages,
             chunk_index=chunks[0].chunk_index,
             total_chunks=chunks[0].total_chunks,
-            metadata=merged_metadata
+            metadata=merged_metadata,
         )
 
     def _create_sub_chunk(self, parent: DocumentChunk, content: str, sub_index: int) -> DocumentChunk:
+        sub_metadata = replace(parent.metadata, split_from=parent.chunk_id, sub_index=sub_index)
         return DocumentChunk(
             chunk_id=f"{parent.chunk_id}_sub_{sub_index}",
             content=content,
@@ -209,7 +209,7 @@ class ChunkOptimizer:
             page_numbers=parent.page_numbers.copy(),
             chunk_index=parent.chunk_index,
             total_chunks=parent.total_chunks,
-            metadata={**parent.metadata, 'split_from': parent.chunk_id, 'sub_index': sub_index}
+            metadata=sub_metadata,
         )
 
     def _reindex_chunks(self, chunks: List[DocumentChunk]) -> List[DocumentChunk]:
@@ -265,9 +265,9 @@ class ChunkOptimizer:
             },
             'page_distribution': dict(page_distribution.most_common(10)),
             'metadata_stats': {
-                'with_section_title': sum(1 for c in chunks if c.metadata.get('section_title')),
-                'with_images': sum(1 for c in chunks if c.metadata.get('has_images')),
-                'with_tables': sum(1 for c in chunks if c.metadata.get('has_tables'))
+                'with_section_title': sum(1 for c in chunks if c.metadata.section_title),
+                'with_images': sum(1 for c in chunks if c.metadata.has_images),
+                'with_tables': sum(1 for c in chunks if c.metadata.has_tables),
             },
             'quality_checks': {
                 'too_small': sum(1 for s in sizes if s < self.min_chunk_size),

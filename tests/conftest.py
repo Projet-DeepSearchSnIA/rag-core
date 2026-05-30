@@ -1,11 +1,26 @@
 """
 Fixtures partagées entre tous les fichiers de test.
 
-On centralise ici la construction d'ExtractedDocument synthétique pour ne
-pas réécrire le même boilerplate dans chaque fichier.
+Centralise la construction d'ExtractedDocument synthétique et la lecture de la
+config baseline.yaml pour les tests live.
+
+Convention :
+  - secrets (PINECONE_API_KEY, HF_TOKEN) -> .env
+  - déploiement (PINECONE_INDEX_NAME, PINECONE_NAMESPACE) -> .env
+  - tout le reste (modèles, cloud, region) -> configs/baseline.yaml
 """
+import logging
+import os
 import uuid
+from pathlib import Path
+
 import pytest
+import yaml
+from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
+
+load_dotenv()
 
 from rag_core.extraction.document_schemas import (
     ContentBlock,
@@ -14,7 +29,17 @@ from rag_core.extraction.document_schemas import (
     ExtractionStats,
     PageContent,
 )
-from rag_core.chunking.text_splitter import DocumentChunk
+from rag_core.chunking.chunk_schemas import ChunkMetadata, DocumentChunk
+from rag_core.retrieval.retriever import PineconeRetriever
+
+
+BASELINE_PATH = Path(__file__).parent.parent / "configs" / "baseline.yaml"
+
+
+def load_baseline() -> dict:
+    """Lit configs/baseline.yaml — la source unique de vérité pour les modèles et hyperparamètres."""
+    with open(BASELINE_PATH, encoding="utf-8") as f:
+        return yaml.safe_load(f)
 
 
 def make_doc(pages_text: list[str]) -> ExtractedDocument:
@@ -68,28 +93,88 @@ def make_chunk(
         page_numbers=page_numbers or [1],
         chunk_index=0,
         total_chunks=1,
-        metadata=metadata or {},
+        metadata=ChunkMetadata.from_dict(metadata) if metadata else ChunkMetadata(),
     )
 
 
-@pytest.fixture
-def doc_simple():
-    """Un document d'une page avec un texte court."""
-    return make_doc(["Ceci est un texte simple pour tester."])
+def _retriever_vide():
+    """Instance PineconeRetriever sans appel réseau — bypasse __init__ via object.__new__."""
+    return object.__new__(PineconeRetriever)
 
 
-@pytest.fixture
-def doc_multi_pages():
-    """Un document de trois pages avec contenu varié."""
-    return make_doc([
-        "Introduction au machine learning et à ses applications.",
-        "Les réseaux de neurones sont des modèles inspirés du cerveau humain.",
-        "Conclusion et perspectives pour la recherche future.",
-    ])
+# ---------------------------------------------------------------------------
+# Fixtures live — skip automatique si les clés .env ou YAML manquent
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def baseline_cfg():
+    """Config YAML chargée une fois pour la session."""
+    return load_baseline()
 
 
-@pytest.fixture
-def doc_long():
-    """Un document avec beaucoup de texte pour forcer plusieurs chunks."""
-    # ~600 chars, suffisant pour dépasser chunk_size=100
-    return make_doc(["mot " * 150])
+@pytest.fixture(scope="session")
+def pinecone_creds():
+    """
+    Retourne (api_key, index_name) depuis .env.
+    Skip le test si l'une ou l'autre est absente.
+    """
+    api_key = os.getenv("PINECONE_API_KEY")
+    index_name = os.getenv("PINECONE_INDEX_NAME")
+    if not api_key:
+        pytest.skip("PINECONE_API_KEY absente du .env")
+    if not index_name:
+        pytest.skip("PINECONE_INDEX_NAME absente du .env")
+    return api_key, index_name
+
+
+@pytest.fixture(scope="session")
+def hf_token():
+    """Token HuggingFace depuis .env, skip si absent."""
+    token = os.getenv("HF_TOKEN")
+    if not token:
+        pytest.skip("HF_TOKEN absent du .env")
+    return token
+
+
+@pytest.fixture(scope="session")
+def live_retriever(pinecone_creds, baseline_cfg):
+    """PineconeRetriever connecté à l'index réel."""
+    from rag_core.retrieval.retriever import PineconeRetriever
+    api_key, index_name = pinecone_creds
+    embed_model = baseline_cfg.get("embedding", {}).get("model")
+    rerank_model = baseline_cfg.get("retrieval", {}).get("rerank_model")
+    namespace = os.getenv("PINECONE_NAMESPACE")
+    if not embed_model:
+        logger.error("embedding.model absent de configs/baseline.yaml")
+        pytest.skip("embedding.model absent de baseline.yaml")
+    if not rerank_model:
+        logger.error("retrieval.rerank_model absent de configs/baseline.yaml")
+        pytest.skip("retrieval.rerank_model absent de baseline.yaml")
+    if not namespace:
+        logger.error("PINECONE_NAMESPACE absente du .env")
+        pytest.skip("PINECONE_NAMESPACE absente du .env")
+    assert embed_model and rerank_model and namespace
+    return PineconeRetriever(
+        api_key=api_key,
+        index_name=index_name,
+        embed_model=embed_model,
+        rerank_model=rerank_model,
+        namespace=namespace,
+    )
+
+
+@pytest.fixture(scope="session")
+def live_llm(hf_token, baseline_cfg):
+    """LLMHandler connecté à HuggingFace."""
+    from rag_core.generation.llm_handler import LLMHandler
+    gen = baseline_cfg.get("generation") or {}
+    required = ("model", "temperature", "max_tokens", "max_retries", "retry_delay_seconds")
+    missing = [k for k in required if gen.get(k) is None]
+    if missing:
+        logger.error("clés generation manquantes dans baseline.yaml : %s", missing)
+        pytest.skip(f"clés generation manquantes : {missing}")
+    return LLMHandler(
+        model_name=gen["model"], api_key=hf_token,
+        temperature=gen["temperature"], max_tokens=gen["max_tokens"],
+        max_retries=gen["max_retries"], retry_delay_seconds=gen["retry_delay_seconds"],
+    )

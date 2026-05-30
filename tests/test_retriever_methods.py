@@ -6,12 +6,8 @@ PineconeRetriever nécessite une vraie clé Pinecone pour s'instancier, mais ses
 privées sont du pur Python. On crée une instance vide via object.__new__ pour contourner
 __init__ (qui ferait un appel réseau) tout en gardant les méthodes liées entre elles.
 """
-from rag_core.retrieval.retriever import EnrichedChunk, PineconeRetriever
-
-
-def _retriever_vide() -> PineconeRetriever:
-    """Crée une instance PineconeRetriever sans appeler __init__ (pas de réseau)."""
-    return object.__new__(PineconeRetriever)
+from tests.conftest import _retriever_vide
+from rag_core.retrieval.retriever import EnrichedChunk
 
 
 def _doc_brut(

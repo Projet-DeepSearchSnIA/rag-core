@@ -30,6 +30,9 @@ Thumbs.db
 .coverage
 htmlcov/
 
+# uv cache (uv.lock est committé, pas le cache)
+.uv_cache/
+
 # Données (ne pas committer de vrais PDFs ou JSONs de données)
 data/
 *.pdf

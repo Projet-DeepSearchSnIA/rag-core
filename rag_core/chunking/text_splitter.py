@@ -1,57 +1,16 @@
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from typing import List, Dict, Optional, Literal
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from rag_core.extraction.document_schemas import ExtractedDocument, ContentBlock
+from rag_core.chunking.chunk_schemas import ChunkMetadata, DocumentChunk
 from rag_core.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-
-class DocumentChunk:
-    """représente un chunk de document avec ses métadonnées"""
-
-    def __init__(
-        self,
-        chunk_id: str,
-        content: str,
-        document_id: str,
-        document_name: str,
-        page_numbers: List[int],
-        chunk_index: int,
-        total_chunks: int,
-        metadata: Dict = None
-    ):
-        self.chunk_id = chunk_id
-        self.content = content
-        self.document_id = document_id
-        self.document_name = document_name
-        self.page_numbers = page_numbers
-        self.chunk_index = chunk_index
-        self.total_chunks = total_chunks
-        self.metadata = metadata or {}
-
-        self.char_count = len(content)
-        self.word_count = len(content.split())
-
-    def to_dict(self) -> Dict:
-        return {
-            'chunk_id': self.chunk_id,
-            'content': self.content,
-            'document_id': self.document_id,
-            'document_name': self.document_name,
-            'page_numbers': self.page_numbers,
-            'chunk_index': self.chunk_index,
-            'total_chunks': self.total_chunks,
-            'char_count': self.char_count,
-            'word_count': self.word_count,
-            'metadata': self.metadata
-        }
-
-    def __repr__(self):
-        preview = self.content[:50] + "..." if len(self.content) > 50 else self.content
-        return f"Chunk({self.chunk_id}, pages={self.page_numbers}, words={self.word_count}, preview='{preview}')"
+__all__ = ["SmartTextSplitter", "DocumentChunk", "ChunkMetadata"]
 
 
 class SmartTextSplitter:
@@ -141,23 +100,23 @@ class SmartTextSplitter:
                     page_numbers=[page.page_number],
                     chunk_index=chunk_counter,
                     total_chunks=0,
-                    metadata={
-                        'extraction_method': page.extraction_method,
-                        'has_images': len(images_used) > 0,
-                        'page_has_images': page.has_images,
-                        'has_tables': page.has_tables,
-                        'has_formulas': len(formulas_used) > 0,
-                        'document_title': doc.metadata.title,
-                        'document_author': ", ".join(doc.metadata.author) if doc.metadata.author else None,
-                        'publication_id': doc.metadata.publication_id,
-                        'attachment_id': doc.metadata.attachment_id,
-                        'user_id': doc.metadata.user_id,
-                        'is_public': doc.metadata.is_public,
-                        'image_ids': [i.get('image_id') for i in images_used if i.get('image_id')],
-                        'image_paths': [i.get('image_path') for i in images_used if i.get('image_path')],
-                        'images': images_used,
-                        'formulas': formulas_used
-                    }
+                    metadata=ChunkMetadata(
+                        extraction_method=page.extraction_method,
+                        has_images=len(images_used) > 0,
+                        page_has_images=page.has_images,
+                        has_tables=page.has_tables,
+                        has_formulas=len(formulas_used) > 0,
+                        document_title=doc.metadata.title,
+                        document_author=", ".join(doc.metadata.author) if doc.metadata.author else None,
+                        publication_id=doc.metadata.publication_id,
+                        attachment_id=doc.metadata.attachment_id,
+                        user_id=doc.metadata.user_id,
+                        is_public=doc.metadata.is_public,
+                        image_ids=[i.get('image_id') for i in images_used if i.get('image_id')],
+                        image_paths=[i.get('image_path') for i in images_used if i.get('image_path')],
+                        images=images_used,
+                        formulas=formulas_used,
+                    ),
                 )
 
                 chunks.append(chunk)
@@ -204,15 +163,9 @@ class SmartTextSplitter:
                 )
                 chunk = self._create_chunk(
                     expanded_text, doc, list(current_pages), chunk_counter,
-                    {
-                        'section_title': current_title,
-                        'has_images': len(images_used) > 0,
-                        'has_formulas': len(formulas_used) > 0,
-                        'image_ids': [i.get('image_id') for i in images_used if i.get('image_id')],
-                        'image_paths': [i.get('image_path') for i in images_used if i.get('image_path')],
-                        'images': images_used,
-                        'formulas': formulas_used,
-                    }
+                    section_title=current_title,
+                    images_used=images_used,
+                    formulas_used=formulas_used,
                 )
                 chunks.append(chunk)
                 chunk_counter += 1
@@ -241,7 +194,7 @@ class SmartTextSplitter:
         chunk_counter = 0
 
         for chunk in semantic_chunks:
-            if chunk.char_count > self.chunk_size * 1.5 and not chunk.metadata.get('has_formulas'):
+            if chunk.char_count > self.chunk_size * 1.5 and not chunk.metadata.has_formulas:
                 sub_texts = self.splitter.split_text(chunk.content)
 
                 for sub_text in sub_texts:
@@ -253,7 +206,7 @@ class SmartTextSplitter:
                         page_numbers=chunk.page_numbers,
                         chunk_index=chunk_counter,
                         total_chunks=0,
-                        metadata=chunk.metadata.copy()
+                        metadata=replace(chunk.metadata),
                     )
                     final_chunks.append(new_chunk)
                     chunk_counter += 1
@@ -343,18 +296,27 @@ class SmartTextSplitter:
         doc: ExtractedDocument,
         page_numbers: List[int],
         index: int,
-        extra_metadata: Dict = None
+        section_title: Optional[str] = None,
+        images_used: Optional[List[Dict]] = None,
+        formulas_used: Optional[List[Dict]] = None,
     ) -> DocumentChunk:
-        metadata = {
-            'document_title': doc.metadata.title,
-            'document_author': ", ".join(doc.metadata.author) if doc.metadata.author else None,
-            'publication_id': doc.metadata.publication_id,
-            'attachment_id': doc.metadata.attachment_id,
-            'user_id': doc.metadata.user_id,
-            'is_public': doc.metadata.is_public,
-        }
-        if extra_metadata:
-            metadata.update(extra_metadata)
+        images_used = images_used or []
+        formulas_used = formulas_used or []
+        metadata = ChunkMetadata(
+            document_title=doc.metadata.title,
+            document_author=", ".join(doc.metadata.author) if doc.metadata.author else None,
+            publication_id=doc.metadata.publication_id,
+            attachment_id=doc.metadata.attachment_id,
+            user_id=doc.metadata.user_id,
+            is_public=doc.metadata.is_public,
+            section_title=section_title,
+            has_images=len(images_used) > 0,
+            has_formulas=len(formulas_used) > 0,
+            image_ids=[i.get('image_id') for i in images_used if i.get('image_id')],
+            image_paths=[i.get('image_path') for i in images_used if i.get('image_path')],
+            images=images_used,
+            formulas=formulas_used,
+        )
 
         return DocumentChunk(
             chunk_id=f"{doc.document_id}_chunk_{index}",
@@ -364,7 +326,7 @@ class SmartTextSplitter:
             page_numbers=page_numbers,
             chunk_index=index,
             total_chunks=0,
-            metadata=metadata
+            metadata=metadata,
         )
 
     def save_chunks(self, chunks: List[DocumentChunk], output_path: str):

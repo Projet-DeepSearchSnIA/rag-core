@@ -1,11 +1,17 @@
+from tests.conftest import load_baseline
+
 from rag_core.extraction.pdf_extractor import PDFExtractor
 from rag_core.extraction.document_schemas import (
     ExtractedDocument, ContentBlock, BoundingBox, DocumentMetadata
 )
 
 
+def _load_extraction_cfg() -> dict:
+    return load_baseline()["extraction"]
+
+
 def test_pdf_extractor_init_sans_callback():
-    extractor = PDFExtractor()
+    extractor = PDFExtractor(config=_load_extraction_cfg())
     assert extractor.upload_callback is None
 
 
@@ -13,7 +19,7 @@ def test_pdf_extractor_init_avec_callback():
     def fake_upload(**kwargs):
         return "http://fake-url/image.png"
 
-    extractor = PDFExtractor(upload_callback=fake_upload)
+    extractor = PDFExtractor(config=_load_extraction_cfg(), upload_callback=fake_upload)
     assert extractor.upload_callback is fake_upload
 
 
@@ -59,5 +65,5 @@ def test_extractor_callback_non_appele_sans_image():
         appels.append(kwargs)
         return "http://fake/img.png"
 
-    PDFExtractor(upload_callback=fake_upload)
+    PDFExtractor(config=_load_extraction_cfg(), upload_callback=fake_upload)
     assert appels == [], "le callback ne doit pas être appelé à l'initialisation"
