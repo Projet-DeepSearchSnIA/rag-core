@@ -24,6 +24,18 @@ ROOT = Path(__file__).parent.parent
 SUBCOMMANDS = ("extract", "chunk", "upload", "index", "retrieve", "ask")
 
 
+def _smoke_timeout() -> int:
+    """Lit le timeout subprocess depuis baseline.yaml. Échoue si absent."""
+    cfg = load_baseline()
+    tests_cfg = cfg.get("tests") or {}
+    timeout = tests_cfg.get("smoke_subprocess_timeout_seconds")
+    if timeout is None:
+        raise RuntimeError(
+            "clé 'smoke_subprocess_timeout_seconds' manquante dans la section [tests] de baseline.yaml"
+        )
+    return int(timeout)
+
+
 def test_scripts_rag_import_sans_erreur():
     importlib.import_module("scripts.rag")
 
@@ -31,7 +43,7 @@ def test_scripts_rag_import_sans_erreur():
 def test_scripts_rag_help():
     result = subprocess.run(
         [sys.executable, "scripts/rag.py", "--help"],
-        cwd=ROOT, capture_output=True, text=True, timeout=30,
+        cwd=ROOT, capture_output=True, text=True, timeout=_smoke_timeout(),
     )
     assert result.returncode == 0, f"--help a renvoyé {result.returncode}\n{result.stderr}"
     for sub in SUBCOMMANDS:
@@ -42,7 +54,7 @@ def test_scripts_rag_help():
 def test_chaque_sous_commande_a_son_help(subcommand):
     result = subprocess.run(
         [sys.executable, "scripts/rag.py", subcommand, "--help"],
-        cwd=ROOT, capture_output=True, text=True, timeout=30,
+        cwd=ROOT, capture_output=True, text=True, timeout=_smoke_timeout(),
     )
     assert result.returncode == 0, f"{subcommand} --help a renvoyé {result.returncode}\n{result.stderr}"
     assert "--config" in result.stdout, f"--config absent du help de {subcommand}"
@@ -52,7 +64,7 @@ def test_sous_commande_manquante_echec_propre():
     """Sans sous-commande, rag.py doit afficher l'aide et échouer (code != 0)."""
     result = subprocess.run(
         [sys.executable, "scripts/rag.py"],
-        cwd=ROOT, capture_output=True, text=True, timeout=30,
+        cwd=ROOT, capture_output=True, text=True, timeout=_smoke_timeout(),
     )
     assert result.returncode != 0
 
