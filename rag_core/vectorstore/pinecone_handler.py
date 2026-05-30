@@ -6,6 +6,7 @@ from pinecone import Pinecone, ServerlessSpec
 from tqdm import tqdm
 import time
 
+from rag_core.chunking.chunk_schemas import DocumentChunk
 from rag_core.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -60,72 +61,65 @@ class PineconeInferenceUploader:
             logger.info("index créé")
 
     def _prepare_metadata(self, chunk: Dict) -> Dict:
-        metadata = {}
+        """Convertit un chunk JSON en métadonnées plates pour Pinecone.
 
-        metadata['document_id'] = chunk.get('document_id', '')
-        metadata['document_name'] = chunk.get('document_name', '')
+        Valide d'abord la structure via DocumentChunk.from_dict — toute clé
+        requise manquante lève une ValueError plutôt que d'indexer avec un
+        défaut silencieux (string vide, 0).
+        """
+        doc_chunk = DocumentChunk.from_dict(chunk)
+        m = doc_chunk.metadata
 
-        chunk_meta = chunk.get('metadata', {})
-        metadata['publication_id'] = chunk_meta.get('publication_id')
-        metadata['attachment_id'] = chunk_meta.get('attachment_id')
-        metadata['user_id'] = chunk_meta.get('user_id')
-        metadata['is_public'] = chunk_meta.get('is_public', False)
-        metadata['chunk_index'] = chunk.get('chunk_index', 0)
-        metadata['char_count'] = chunk.get('char_count', 0)
-        metadata['word_count'] = chunk.get('word_count', 0)
+        pages = doc_chunk.page_numbers
+        metadata = {
+            "document_id": doc_chunk.document_id,
+            "document_name": doc_chunk.document_name,
+            "chunk_index": doc_chunk.chunk_index,
+            "char_count": doc_chunk.char_count,
+            "word_count": doc_chunk.word_count,
+            "page_numbers": ",".join(map(str, pages)),
+            "first_page": pages[0] if pages else 0,
+            "publication_id": m.publication_id,
+            "attachment_id": m.attachment_id,
+            "user_id": m.user_id,
+            "is_public": m.is_public,
+            "document_title": (m.document_title or "")[:200],
+            "document_author": (m.document_author or "")[:200],
+            "has_images": m.has_images,
+            "has_formulas": m.has_formulas,
+        }
+        if m.section_title:
+            metadata["section_title"] = m.section_title[:200]
 
-        pages = chunk.get('page_numbers', [])
-        if isinstance(pages, list):
-            metadata['page_numbers'] = ','.join(map(str, pages))
-            metadata['first_page'] = pages[0] if pages else 0
-        else:
-            metadata['page_numbers'] = str(pages)
-            metadata['first_page'] = 0
+        if m.formulas:
+            formulas_latex = [f.get("latex", "") for f in m.formulas if f.get("latex")]
+            metadata["formulas_latex"] = formulas_latex[:5]
+            metadata["formulas_latex_str"] = " || ".join(formulas_latex[:5])[:500]
+            metadata["num_formulas"] = len(formulas_latex)
 
-        metadata['document_title'] = (chunk_meta.get('document_title') or '')[:200]
-        metadata['document_author'] = (chunk_meta.get('document_author') or '')[:200]
-        section = chunk_meta.get('section_title', '')
-        if section:
-            metadata['section_title'] = section[:200]
+        if m.images or m.image_ids or m.image_paths:
+            if m.image_ids:
+                metadata["image_ids"] = m.image_ids[:10]
+                metadata["image_ids_str"] = ",".join(m.image_ids[:10])
+            if m.image_paths:
+                metadata["image_paths"] = m.image_paths[:10]
+                metadata["image_paths_str"] = ",".join(m.image_paths[:10])[:500]
+            metadata["num_images"] = len(m.images) if m.images else len(m.image_ids or m.image_paths)
 
-        metadata['has_images'] = chunk_meta.get('has_images', False)
-        metadata['has_formulas'] = chunk_meta.get('has_formulas', False)
-
-        formulas = chunk_meta.get('formulas', [])
-        if formulas:
-            formulas_latex = [f.get('latex', '') for f in formulas if f.get('latex')]
-            metadata['formulas_latex'] = formulas_latex[:5]
-            metadata['formulas_latex_str'] = ' || '.join(formulas_latex[:5])[:500]
-            metadata['num_formulas'] = len(formulas_latex)
-
-        images = chunk_meta.get('images', [])
-        image_ids = chunk_meta.get('image_ids', [])
-        image_paths = chunk_meta.get('image_paths', [])
-
-        if images or image_ids or image_paths:
-            if image_ids:
-                metadata['image_ids'] = image_ids[:10]
-                metadata['image_ids_str'] = ','.join(image_ids[:10])
-            if image_paths:
-                metadata['image_paths'] = image_paths[:10]
-                metadata['image_paths_str'] = ','.join(image_paths[:10])[:500]
-            metadata['num_images'] = len(images) if images else len(image_ids or image_paths)
-
-        content = chunk.get('content', '')
         footer_parts = []
-        if formulas:
+        if m.formulas:
             footer_parts.append("[FORMULES MATHÉMATIQUES PRÉSENTES]")
-            if metadata.get('formulas_latex'):
-                footer_parts.append("FORMULES_LATEX: " + " || ".join(metadata['formulas_latex']))
-        if images:
+            if metadata.get("formulas_latex"):
+                footer_parts.append("FORMULES_LATEX: " + " || ".join(metadata["formulas_latex"]))
+        if m.images:
             footer_parts.append("[IMAGES PRÉSENTES]")
-            if metadata.get('image_paths'):
-                footer_parts.append("IMAGE_PATHS: " + " || ".join(metadata['image_paths']))
-            elif metadata.get('image_ids'):
-                footer_parts.append("IMAGE_IDS: " + " || ".join(metadata['image_ids']))
+            if metadata.get("image_paths"):
+                footer_parts.append("IMAGE_PATHS: " + " || ".join(metadata["image_paths"]))
+            elif metadata.get("image_ids"):
+                footer_parts.append("IMAGE_IDS: " + " || ".join(metadata["image_ids"]))
 
-        metadata['text'] = content + "\n\n" + "\n".join(footer_parts) if footer_parts else content
-        metadata['content'] = content
+        metadata["text"] = doc_chunk.content + "\n\n" + "\n".join(footer_parts) if footer_parts else doc_chunk.content
+        metadata["content"] = doc_chunk.content
 
         return metadata
 

@@ -29,7 +29,7 @@ from rag_core.extraction.document_schemas import (
     ExtractionStats,
     PageContent,
 )
-from rag_core.chunking.text_splitter import DocumentChunk
+from rag_core.chunking.chunk_schemas import ChunkMetadata, DocumentChunk
 from rag_core.retrieval.retriever import PineconeRetriever
 
 
@@ -93,7 +93,7 @@ def make_chunk(
         page_numbers=page_numbers or [1],
         chunk_index=0,
         total_chunks=1,
-        metadata=metadata or {},
+        metadata=ChunkMetadata.from_dict(metadata) if metadata else ChunkMetadata(),
     )
 
 

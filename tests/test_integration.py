@@ -144,8 +144,8 @@ class TestChunkingPipeline:
         optimized, _ = optimizer.optimize_chunks(chunks)
 
         for chunk in optimized:
-            assert chunk.metadata.get('document_title') == "Titre de test"
-            assert chunk.metadata.get('publication_id') == 42
+            assert chunk.metadata.document_title == "Titre de test"
+            assert chunk.metadata.publication_id == 42
 
 
 # --- serialisation JSON ------------------------------------------------------
