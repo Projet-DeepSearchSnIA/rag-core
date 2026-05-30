@@ -167,9 +167,14 @@ def live_retriever(pinecone_creds, baseline_cfg):
 def live_llm(hf_token, baseline_cfg):
     """LLMHandler connecté à HuggingFace."""
     from rag_core.generation.llm_handler import LLMHandler
-    model = baseline_cfg.get("generation", {}).get("model")
-    if not model:
-        logger.error("generation.model absent de configs/baseline.yaml")
-        pytest.skip("generation.model absent de baseline.yaml")
-    assert model
-    return LLMHandler(model_name=model, api_key=hf_token)
+    gen = baseline_cfg.get("generation") or {}
+    required = ("model", "temperature", "max_tokens", "max_retries", "retry_delay_seconds")
+    missing = [k for k in required if gen.get(k) is None]
+    if missing:
+        logger.error("clés generation manquantes dans baseline.yaml : %s", missing)
+        pytest.skip(f"clés generation manquantes : {missing}")
+    return LLMHandler(
+        model_name=gen["model"], api_key=hf_token,
+        temperature=gen["temperature"], max_tokens=gen["max_tokens"],
+        max_retries=gen["max_retries"], retry_delay_seconds=gen["retry_delay_seconds"],
+    )

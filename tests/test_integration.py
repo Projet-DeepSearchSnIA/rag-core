@@ -333,12 +333,18 @@ class TestLLMHandlerMocked:
 
     def _make_llm(self):
         # On patche InferenceClient à la construction pour éviter une vraie connexion.
-        model = load_baseline().get("generation", {}).get("model")
-        if not model:
-            logger.warning("generation.model absent de baseline.yaml")
-            pytest.skip("generation.model absent de baseline.yaml")
+        gen = load_baseline().get("generation") or {}
+        required = ("model", "temperature", "max_tokens", "max_retries", "retry_delay_seconds")
+        missing = [k for k in required if gen.get(k) is None]
+        if missing:
+            logger.warning("clés generation manquantes : %s", missing)
+            pytest.skip(f"clés generation manquantes : {missing}")
         with patch("rag_core.generation.llm_handler.InferenceClient"):
-            llm = LLMHandler(model_name=model, api_key="hf-fake-token")
+            llm = LLMHandler(
+                model_name=gen["model"], api_key="hf-fake-token",
+                temperature=gen["temperature"], max_tokens=gen["max_tokens"],
+                max_retries=gen["max_retries"], retry_delay_seconds=gen["retry_delay_seconds"],
+            )
         llm.client = MagicMock()
         return llm
 
@@ -454,6 +460,10 @@ class TestRAGPipelineMocked:
         call_kwargs = mock_retriever.retrieve.call_args
         assert call_kwargs.kwargs.get("top_k") == 3
 
-    def test_rag_pipeline_requiert_llm(self):
-        with pytest.raises(ValueError, match="llm"):
+    def test_rag_pipeline_requiert_retriever_et_llm(self):
+        # Les deux arguments sont keyword-only et obligatoires.
+        with pytest.raises(TypeError):
             RAGPipeline()
+        # llm seul ne suffit pas non plus
+        with pytest.raises(TypeError):
+            RAGPipeline(llm=MagicMock())

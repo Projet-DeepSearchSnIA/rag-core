@@ -1,4 +1,3 @@
-import os
 import time
 from typing import List, Dict, Optional
 from huggingface_hub import InferenceClient
@@ -15,24 +14,21 @@ class LLMHandler:
     def __init__(
         self,
         model_name: str,
-        api_key: Optional[str] = None,
-        temperature: float = 0.7,
-        max_tokens: int = 1000,
+        api_key: str,
+        temperature: float,
+        max_tokens: int,
+        max_retries: int,
+        retry_delay_seconds: int,
         provider: Optional[str] = None,
-        max_retries: int = 3,
-        retry_delay_seconds: int = 2
     ):
+        if not api_key:
+            raise ValueError("api_key requis (HF_TOKEN dans .env, à passer explicitement)")
         self.model_name = model_name
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.provider = provider
         self.max_retries = max_retries
         self.retry_delay_seconds = retry_delay_seconds
-
-        if api_key is None:
-            api_key = os.getenv('HF_TOKEN')
-            if not api_key:
-                raise ValueError("HF_TOKEN non trouvé, définissez-le dans .env")
 
         logger.info("initialisation LLMHandler — modèle: %s", model_name)
         self.client = InferenceClient(api_key=api_key)
@@ -136,59 +132,32 @@ class LLMHandler:
 
 
 class RAGPipeline:
-    """pipeline RAG complet : retrieval + generation.
+    """pipeline RAG complet : retriever + LLM.
 
-    Supporte deux modes d'initialisation :
-    - moderne  : RAGPipeline(retriever=<PineconeRetriever>, llm=<LLMHandler>)
-    - legacy   : RAGPipeline(<LLMHandler>, <vector_store>, <embedding_model>)
+    Une seule façon d'initialiser : RAGPipeline(retriever=..., llm=...).
+    Le retriever doit exposer une méthode .retrieve(query, top_k) qui retourne
+    des objets convertibles via .to_dict().
     """
 
-    def __init__(
-        self,
-        llm_handler: Optional[LLMHandler] = None,
-        vector_store_handler=None,
-        embedding_model=None,
-        *,
-        retriever=None,
-        llm: Optional[LLMHandler] = None,
-    ):
-        self.llm = llm if llm is not None else llm_handler
+    def __init__(self, *, retriever, llm: LLMHandler):
+        if retriever is None:
+            raise ValueError("retriever requis")
+        if llm is None:
+            raise ValueError("llm requis")
         self.retriever = retriever
-        self.vector_store = vector_store_handler
-        self.embedding_model = embedding_model
-        if self.llm is None:
-            raise ValueError("llm ou llm_handler requis")
+        self.llm = llm
         logger.info("RAGPipeline initialisé")
 
-    def ask(self, question: str, top_k: int = 5, min_score: float = 0.5, **kwargs) -> Dict:
+    def ask(self, question: str, top_k: int = 5, **kwargs) -> Dict:
         logger.info("question RAG: %s", question)
 
-        if self.retriever is not None:
-            if hasattr(self.retriever, 'retrieve'):
-                chunks = self.retriever.retrieve(query=question, top_k=top_k)
-                retrieved_chunks = [c.to_dict() for c in chunks]
-            elif hasattr(self.retriever, 'search'):
-                ids, scores, metadatas = self.retriever.search(query=question, top_k=top_k)
-                retrieved_chunks = [
-                    {'id': id_, 'score': score, 'text': meta.get('text', ''), 'metadata': meta}
-                    for id_, score, meta in zip(ids, scores, metadatas)
-                    if score >= min_score
-                ]
-            else:
-                retrieved_chunks = []
-        else:
-            query_embedding = self.embedding_model.encode([question])[0].tolist()
-            ids, scores, metadatas = self.vector_store.search(query_embedding=query_embedding, top_k=top_k)
-            retrieved_chunks = [
-                {'id': id_, 'score': score, 'text': meta.get('text', ''), 'metadata': meta}
-                for id_, score, meta in zip(ids, scores, metadatas)
-                if score >= min_score
-            ]
+        chunks = self.retriever.retrieve(query=question, top_k=top_k)
+        retrieved_chunks = [c.to_dict() for c in chunks]
 
         if not retrieved_chunks:
             return {
                 'response': "Je n'ai pas trouvé de documents pertinents pour répondre à cette question dans ma base de connaissances.",
-                'cited_sources': [], 'all_sources': [], 'num_sources_used': 0
+                'cited_sources': [], 'all_sources': [], 'num_sources_used': 0,
             }
 
         return self.llm.generate_response(question=question, retrieved_chunks=retrieved_chunks, **kwargs)
