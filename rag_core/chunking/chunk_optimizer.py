@@ -14,13 +14,13 @@ class ChunkOptimizer:
 
     def __init__(
         self,
-        min_chunk_size: int = 100,
-        max_chunk_size: int = 2000,
-        target_chunk_size: int = 1000,
-        merge_small_chunks: bool = True,
-        split_large_chunks: bool = True,
-        remove_duplicates: bool = True,
-        similarity_threshold: float = 0.9
+        min_chunk_size: int,
+        max_chunk_size: int,
+        target_chunk_size: int,
+        merge_small_chunks: bool,
+        split_large_chunks: bool,
+        remove_duplicates: bool,
+        similarity_threshold: float,
     ):
         self.min_chunk_size = min_chunk_size
         self.max_chunk_size = max_chunk_size

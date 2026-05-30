@@ -107,9 +107,30 @@ def cmd_extract(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # chunk : JSON extrait -> JSON chunks
 # ---------------------------------------------------------------------------
-def cmd_chunk(args: argparse.Namespace) -> int:
-    from rag_core.chunking.chunk_optimizer import ChunkOptimizer
+def _build_splitter(chunk_cfg: dict):
     from rag_core.chunking.text_splitter import SmartTextSplitter
+    return SmartTextSplitter(
+        chunk_size=require_key(chunk_cfg, "chunk_size", "chunking"),
+        chunk_overlap=require_key(chunk_cfg, "chunk_overlap", "chunking"),
+        strategy=require_key(chunk_cfg, "strategy", "chunking"),
+    )
+
+
+def _build_optimizer(chunk_cfg: dict):
+    from rag_core.chunking.chunk_optimizer import ChunkOptimizer
+    opt_cfg = require_section(chunk_cfg, "optimizer")
+    return ChunkOptimizer(
+        min_chunk_size=require_key(opt_cfg, "min_chunk_size", "chunking.optimizer"),
+        max_chunk_size=require_key(opt_cfg, "max_chunk_size", "chunking.optimizer"),
+        target_chunk_size=require_key(opt_cfg, "target_chunk_size", "chunking.optimizer"),
+        merge_small_chunks=require_key(opt_cfg, "merge_small_chunks", "chunking.optimizer"),
+        split_large_chunks=require_key(opt_cfg, "split_large_chunks", "chunking.optimizer"),
+        remove_duplicates=require_key(opt_cfg, "remove_duplicates", "chunking.optimizer"),
+        similarity_threshold=require_key(opt_cfg, "similarity_threshold", "chunking.optimizer"),
+    )
+
+
+def cmd_chunk(args: argparse.Namespace) -> int:
     from rag_core.extraction.document_schemas import ExtractedDocument
 
     cfg = load_config(args.config)
@@ -119,17 +140,12 @@ def cmd_chunk(args: argparse.Namespace) -> int:
         doc_dict = json.load(f)
     doc = ExtractedDocument.from_dict(doc_dict)
 
-    splitter = SmartTextSplitter(
-        chunk_size=require_key(chunk_cfg, "chunk_size", "chunking"),
-        chunk_overlap=require_key(chunk_cfg, "chunk_overlap", "chunking"),
-        strategy=require_key(chunk_cfg, "strategy", "chunking"),
-    )
+    splitter = _build_splitter(chunk_cfg)
     chunks = splitter.split_document(doc)
     logger.info("%d chunks produits par le splitter", len(chunks))
 
     if require_key(chunk_cfg, "optimizer_enabled", "chunking"):
-        optimizer = ChunkOptimizer()
-        chunks, stats = optimizer.optimize_chunks(chunks)
+        chunks, stats = _build_optimizer(chunk_cfg).optimize_chunks(chunks)
         logger.info(
             "optimiseur : %d -> %d chunks (fusionnés=%d, splittés=%d)",
             stats.get("initial_count", 0), stats.get("final_count", len(chunks)),
@@ -161,7 +177,11 @@ def cmd_upload(args: argparse.Namespace) -> int:
         cloud=require_key(vs_cfg, "cloud", "vectorstore"),
         region=require_key(vs_cfg, "region", "vectorstore"),
     )
-    uploader.upload_chunks_from_json(args.chunks_json, namespace=args.namespace)
+    uploader.upload_chunks_from_json(
+        args.chunks_json,
+        namespace=args.namespace,
+        batch_size=require_key(vs_cfg, "upload_batch_size", "vectorstore"),
+    )
     logger.info("upload terminé vers %s/%s", args.index, args.namespace)
     return 0
 
@@ -170,8 +190,6 @@ def cmd_upload(args: argparse.Namespace) -> int:
 # index : pipeline complet d'ingestion
 # ---------------------------------------------------------------------------
 def cmd_index(args: argparse.Namespace) -> int:
-    from rag_core.chunking.chunk_optimizer import ChunkOptimizer
-    from rag_core.chunking.text_splitter import SmartTextSplitter
     from rag_core.extraction.pdf_extractor import PDFExtractor
     from rag_core.vectorstore.pinecone_handler import PineconeInferenceUploader
 
@@ -186,14 +204,10 @@ def cmd_index(args: argparse.Namespace) -> int:
     logger.info("extraction de %s", args.pdf_path)
     doc = extractor.extract_pdf(args.pdf_path, uploaded_url=args.pdf_path)
 
-    splitter = SmartTextSplitter(
-        chunk_size=require_key(chunk_cfg, "chunk_size", "chunking"),
-        chunk_overlap=require_key(chunk_cfg, "chunk_overlap", "chunking"),
-        strategy=require_key(chunk_cfg, "strategy", "chunking"),
-    )
+    splitter = _build_splitter(chunk_cfg)
     chunks = splitter.split_document(doc)
     if require_key(chunk_cfg, "optimizer_enabled", "chunking"):
-        chunks, _ = ChunkOptimizer().optimize_chunks(chunks)
+        chunks, _ = _build_optimizer(chunk_cfg).optimize_chunks(chunks)
 
     uploader = PineconeInferenceUploader(
         api_key=api_key,
@@ -207,7 +221,11 @@ def cmd_index(args: argparse.Namespace) -> int:
         tmp_path = tmp.name
     splitter.save_chunks(chunks, tmp_path)
     try:
-        uploader.upload_chunks_from_json(tmp_path, namespace=args.namespace)
+        uploader.upload_chunks_from_json(
+            tmp_path,
+            namespace=args.namespace,
+            batch_size=require_key(vs_cfg, "upload_batch_size", "vectorstore"),
+        )
     finally:
         os.remove(tmp_path)
 
@@ -239,6 +257,7 @@ def cmd_retrieve(args: argparse.Namespace) -> int:
         query=args.query,
         retrieve_k=require_key(ret_cfg, "retrieve_k", "retrieval"),
         top_k=require_key(ret_cfg, "top_k", "retrieval"),
+        max_k=require_key(ret_cfg, "max_k", "retrieval"),
         rerank=require_key(ret_cfg, "rerank", "retrieval"),
         rerank_threshold=require_key(ret_cfg, "rerank_threshold", "retrieval"),
     )
@@ -280,6 +299,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
         query=args.query,
         retrieve_k=require_key(ret_cfg, "retrieve_k", "retrieval"),
         top_k=require_key(ret_cfg, "top_k", "retrieval"),
+        max_k=require_key(ret_cfg, "max_k", "retrieval"),
         rerank=require_key(ret_cfg, "rerank", "retrieval"),
         rerank_threshold=require_key(ret_cfg, "rerank_threshold", "retrieval"),
     )

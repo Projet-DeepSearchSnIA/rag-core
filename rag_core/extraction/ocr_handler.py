@@ -1,6 +1,6 @@
 from PIL import Image
 import numpy as np
-from typing import List, Optional
+from typing import List
 import re
 
 from .document_schemas import ContentBlock, BoundingBox
@@ -14,15 +14,17 @@ class DocTROCRHandler:
 
     def __init__(
         self,
-        det_arch: str = "db_resnet50",
-        reco_arch: str = "crnn_vgg16_bn",
-        device: str = "cuda",
-        pretrained: bool = True
+        det_arch: str,
+        reco_arch: str,
+        device: str,
+        pretrained: bool,
     ):
         import torch
         from doctr.models import ocr_predictor
 
         self.device = device if torch.cuda.is_available() else "cpu"
+        if self.device != device:
+            logger.warning("device demandé '%s' indisponible, fallback sur '%s'", device, self.device)
 
         try:
             self.model = ocr_predictor(
@@ -43,14 +45,13 @@ class DocTROCRHandler:
         self,
         image: Image.Image,
         page_number: int,
-        image_id: Optional[str] = None
     ) -> List[ContentBlock]:
         try:
             img_array = np.array(image)
             result = self.model([img_array])
             if not result.pages:
                 return []
-            return self._parse_doctr_page(result.pages[0], page_number, image_id)
+            return self._parse_doctr_page(result.pages[0], page_number)
         except Exception as e:
             logger.error("erreur traitement image: %s", e)
             return []
@@ -68,7 +69,7 @@ class DocTROCRHandler:
         page_number: int,
         image_id: str
     ) -> ContentBlock:
-        blocks = self.process_image(image, page_number, image_id=image_id)
+        blocks = self.process_image(image, page_number)
         description = " ".join([b.content for b in blocks if b.type == "text"])
 
         return ContentBlock(
@@ -83,7 +84,6 @@ class DocTROCRHandler:
         self,
         page,
         page_number: int,
-        image_id: Optional[str] = None
     ) -> List[ContentBlock]:
         if page is None:
             return []
@@ -144,50 +144,3 @@ class DocTROCRHandler:
             return ("table", None)
 
         return ("text", None)
-
-    def batch_process_images(
-        self,
-        images: List[tuple],
-        batch_size: int = 4
-    ) -> List[List[ContentBlock]]:
-        all_blocks = []
-
-        for i in range(0, len(images), batch_size):
-            batch = images[i:i + batch_size]
-            batch_images = []
-            batch_metadata = []
-
-            for image, page_num, img_id in batch:
-                batch_images.append(np.array(image))
-                batch_metadata.append((page_num, img_id))
-
-            try:
-                results = self.model(batch_images)
-
-                for result, (page_num, img_id) in zip(results.pages, batch_metadata):
-                    blocks = self._parse_doctr_page(result, page_num, img_id)
-                    all_blocks.append(blocks)
-
-            except Exception as e:
-                logger.warning("erreur batch: %s, traitement individuel", e)
-                for image, page_num, img_id in batch:
-                    blocks = self.process_image(image, page_num, image_id=img_id)
-                    all_blocks.append(blocks)
-
-        return all_blocks
-
-    def export_to_text(self, blocks: List[ContentBlock]) -> str:
-        text_lines = []
-
-        for block in blocks:
-            if block.type == "title":
-                prefix = "#" * (block.level or 1)
-                text_lines.append(f"{prefix} {block.content}\n")
-            elif block.type == "list":
-                text_lines.append(f"• {block.content}")
-            else:
-                text_lines.append(block.content)
-
-            text_lines.append("")
-
-        return "\n".join(text_lines)

@@ -1,10 +1,10 @@
-from tests.conftest import make_doc
+from tests.conftest import load_baseline, make_doc, make_splitter
 from rag_core.chunking.text_splitter import SmartTextSplitter, DocumentChunk
 
 
 def test_chunk_document_simple():
     doc = make_doc(["Ceci est un texte simple pour tester le chunking."])
-    splitter = SmartTextSplitter(chunk_size=100, chunk_overlap=0, strategy="recursive")
+    splitter = make_splitter(chunk_size=100, chunk_overlap=0, strategy="recursive")
     chunks = splitter.split_document(doc)
     assert len(chunks) >= 1
     assert all(isinstance(c, DocumentChunk) for c in chunks)
@@ -12,7 +12,7 @@ def test_chunk_document_simple():
 
 def test_chunk_preserve_document_id():
     doc = make_doc(["Un texte quelconque."])
-    splitter = SmartTextSplitter(chunk_size=500, strategy="recursive")
+    splitter = make_splitter(chunk_size=500, strategy="recursive")
     chunks = splitter.split_document(doc)
     for chunk in chunks:
         assert chunk.document_id == doc.document_id
@@ -20,7 +20,7 @@ def test_chunk_preserve_document_id():
 
 def test_chunk_total_chunks_coherent():
     doc = make_doc(["a " * 300])
-    splitter = SmartTextSplitter(chunk_size=100, chunk_overlap=0, strategy="recursive")
+    splitter = make_splitter(chunk_size=100, chunk_overlap=0, strategy="recursive")
     chunks = splitter.split_document(doc)
     expected_total = len(chunks)
     for chunk in chunks:
@@ -29,14 +29,14 @@ def test_chunk_total_chunks_coherent():
 
 def test_chunk_doc_vide():
     doc = make_doc([])
-    splitter = SmartTextSplitter(strategy="recursive")
+    splitter = make_splitter(strategy="recursive")
     chunks = splitter.split_document(doc)
     assert chunks == []
 
 
 def test_chunk_to_dict_complet():
     doc = make_doc(["Du contenu."])
-    splitter = SmartTextSplitter(strategy="recursive")
+    splitter = make_splitter(strategy="recursive")
     chunks = splitter.split_document(doc)
     d = chunks[0].to_dict()
     assert "chunk_id" in d
@@ -47,13 +47,24 @@ def test_chunk_to_dict_complet():
 
 def test_strategy_mixed():
     doc = make_doc(["Section 1", "Contenu de la section 1.", "Section 2", "Contenu de la section 2."])
-    splitter = SmartTextSplitter(chunk_size=500, strategy="mixed")
+    splitter = make_splitter(chunk_size=500, strategy="mixed")
     chunks = splitter.split_document(doc)
     assert len(chunks) >= 1
 
 
-def test_splitter_defaut_recursive():
-    splitter = SmartTextSplitter()
-    assert splitter.strategy == "recursive"
-    assert splitter.chunk_size == 1000
-    assert splitter.chunk_overlap == 200
+def test_splitter_baseline_values():
+    """Les valeurs par défaut viennent de baseline.yaml, pas de la signature."""
+    splitter = make_splitter()
+    chunk_cfg = load_baseline()["chunking"]
+    assert splitter.strategy == chunk_cfg["strategy"]
+    assert splitter.chunk_size == chunk_cfg["chunk_size"]
+    assert splitter.chunk_overlap == chunk_cfg["chunk_overlap"]
+
+
+def test_splitter_construit_directement_sans_defaut():
+    """Sans factory, tous les paramètres doivent être explicites (no defaults)."""
+    import pytest
+    with pytest.raises(TypeError):
+        SmartTextSplitter()
+    with pytest.raises(TypeError):
+        SmartTextSplitter(chunk_size=100)

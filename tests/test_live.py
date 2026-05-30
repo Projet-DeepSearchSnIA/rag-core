@@ -19,6 +19,8 @@ Ce qu'ils testent (que les tests mockés ne peuvent pas vérifier) :
 """
 import pytest
 
+from tests.conftest import retrieve_with_baseline
+
 
 # ---------------------------------------------------------------------------
 # Retrieval — Pinecone
@@ -35,12 +37,12 @@ class TestLiveRetrieval:
     def test_connexion_et_index_accessible(self, live_retriever):
         # Si l'index n'existe pas ou la clé est mauvaise, ça plante ici.
         # Un résultat vide est OK — ce qui compte, c'est que la requête passe.
-        chunks = live_retriever.retrieve("test de connexion", top_k=1, retrieve_k=3)
+        chunks = retrieve_with_baseline(live_retriever, "test de connexion", top_k=1, retrieve_k=3)
         assert isinstance(chunks, list)
 
     def test_retrieve_retourne_des_enriched_chunks(self, live_retriever):
         from rag_core.retrieval.retriever import EnrichedChunk
-        chunks = live_retriever.retrieve("introduction", top_k=3, retrieve_k=10)
+        chunks = retrieve_with_baseline(live_retriever, "introduction", top_k=3, retrieve_k=10)
 
         if not chunks:
             pytest.skip("L'index est vide — indexer des documents d'abord")
@@ -60,7 +62,7 @@ class TestLiveRetrieval:
 
     def test_scores_coherents(self, live_retriever):
         # Les résultats doivent être triés par score décroissant.
-        chunks = live_retriever.retrieve("méthode algorithme", top_k=5, retrieve_k=15)
+        chunks = retrieve_with_baseline(live_retriever, "méthode algorithme", top_k=5, retrieve_k=15)
 
         if len(chunks) < 2:
             pytest.skip("Pas assez de résultats pour vérifier le tri")
@@ -73,11 +75,9 @@ class TestLiveRetrieval:
 
     def test_retrieve_sans_rerank(self, live_retriever):
         # Le fallback sans reranking doit quand même retourner des résultats.
-        chunks = live_retriever.retrieve(
-            "résultats expériences",
-            top_k=3,
-            retrieve_k=10,
-            rerank=False
+        chunks = retrieve_with_baseline(
+            live_retriever, "résultats expériences",
+            top_k=3, retrieve_k=10, rerank=False,
         )
         assert isinstance(chunks, list)
         # Sans rerank, rerank_score doit être None pour tous les chunks
@@ -86,11 +86,11 @@ class TestLiveRetrieval:
 
     def test_top_k_respecte(self, live_retriever):
         # On ne doit jamais recevoir plus de chunks que demandé.
-        chunks = live_retriever.retrieve("définition", top_k=2, retrieve_k=10)
+        chunks = retrieve_with_baseline(live_retriever, "définition", top_k=2, retrieve_k=10)
         assert len(chunks) <= 2
 
     def test_format_for_llm_produit_du_texte(self, live_retriever):
-        chunks = live_retriever.retrieve("résumé", top_k=3, retrieve_k=10)
+        chunks = retrieve_with_baseline(live_retriever, "résumé", top_k=3, retrieve_k=10)
 
         if not chunks:
             pytest.skip("L'index est vide")
@@ -187,7 +187,7 @@ class TestLiveE2E:
         question = "Quelle est la méthode principale décrite dans les documents ?"
 
         # Retrieval
-        chunks = live_retriever.retrieve(question, top_k=3, retrieve_k=10)
+        chunks = retrieve_with_baseline(live_retriever, question, top_k=3, retrieve_k=10)
 
         if not chunks:
             pytest.skip("L'index est vide — indexer des documents d'abord")
@@ -208,7 +208,7 @@ class TestLiveE2E:
         # quelque chose (soit une réponse "je ne sais pas", soit des chunks peu pertinents).
         question = "Quelle est la recette de la tarte aux pommes ?"
 
-        chunks = live_retriever.retrieve(question, top_k=3, retrieve_k=10)
+        chunks = retrieve_with_baseline(live_retriever, question, top_k=3, retrieve_k=10)
         chunks_dicts = [c.to_dict() for c in chunks] if chunks else []
 
         result = live_llm.generate_response(question, retrieved_chunks=chunks_dicts)
@@ -218,7 +218,7 @@ class TestLiveE2E:
         assert isinstance(result["response"], str)
 
     def test_streaming_produit_des_tokens(self, live_retriever, live_llm):
-        chunks = live_retriever.retrieve("définition", top_k=2, retrieve_k=5)
+        chunks = retrieve_with_baseline(live_retriever, "définition", top_k=2, retrieve_k=5)
 
         if not chunks:
             pytest.skip("L'index est vide")

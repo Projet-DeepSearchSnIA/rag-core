@@ -29,7 +29,9 @@ from rag_core.extraction.document_schemas import (
     ExtractionStats,
     PageContent,
 )
+from rag_core.chunking.chunk_optimizer import ChunkOptimizer
 from rag_core.chunking.chunk_schemas import ChunkMetadata, DocumentChunk
+from rag_core.chunking.text_splitter import SmartTextSplitter
 from rag_core.retrieval.retriever import PineconeRetriever
 
 
@@ -102,6 +104,44 @@ def _retriever_vide():
     return object.__new__(PineconeRetriever)
 
 
+def make_splitter(**overrides) -> SmartTextSplitter:
+    """Splitter pré-rempli depuis baseline.yaml, override possible (chunk_size, strategy, etc.)."""
+    chunk_cfg = load_baseline()["chunking"]
+    return SmartTextSplitter(
+        chunk_size=overrides.get("chunk_size", chunk_cfg["chunk_size"]),
+        chunk_overlap=overrides.get("chunk_overlap", chunk_cfg["chunk_overlap"]),
+        strategy=overrides.get("strategy", chunk_cfg["strategy"]),
+    )
+
+
+def retrieve_with_baseline(retriever, query: str, **overrides):
+    """Appelle retriever.retrieve avec les valeurs de baseline.yaml sauf override."""
+    ret_cfg = load_baseline()["retrieval"]
+    return retriever.retrieve(
+        query=query,
+        top_k=overrides.get("top_k", ret_cfg["top_k"]),
+        max_k=overrides.get("max_k", ret_cfg["max_k"]),
+        retrieve_k=overrides.get("retrieve_k", ret_cfg["retrieve_k"]),
+        rerank=overrides.get("rerank", ret_cfg["rerank"]),
+        rerank_threshold=overrides.get("rerank_threshold", ret_cfg["rerank_threshold"]),
+        filter=overrides.get("filter"),
+    )
+
+
+def make_optimizer(**overrides) -> ChunkOptimizer:
+    """Optimizer pré-rempli depuis baseline.yaml[chunking.optimizer], override possible."""
+    opt_cfg = load_baseline()["chunking"]["optimizer"]
+    return ChunkOptimizer(
+        min_chunk_size=overrides.get("min_chunk_size", opt_cfg["min_chunk_size"]),
+        max_chunk_size=overrides.get("max_chunk_size", opt_cfg["max_chunk_size"]),
+        target_chunk_size=overrides.get("target_chunk_size", opt_cfg["target_chunk_size"]),
+        merge_small_chunks=overrides.get("merge_small_chunks", opt_cfg["merge_small_chunks"]),
+        split_large_chunks=overrides.get("split_large_chunks", opt_cfg["split_large_chunks"]),
+        remove_duplicates=overrides.get("remove_duplicates", opt_cfg["remove_duplicates"]),
+        similarity_threshold=overrides.get("similarity_threshold", opt_cfg["similarity_threshold"]),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Fixtures live — skip automatique si les clés .env ou YAML manquent
 # ---------------------------------------------------------------------------
@@ -160,6 +200,8 @@ def live_retriever(pinecone_creds, baseline_cfg):
         embed_model=embed_model,
         rerank_model=rerank_model,
         namespace=namespace,
+        truncation_max_tokens=baseline_cfg["retrieval"]["truncation_max_tokens"],
+        truncation_chars_per_token=baseline_cfg["retrieval"]["truncation_chars_per_token"],
     )
 
 

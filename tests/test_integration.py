@@ -16,9 +16,7 @@ import pytest
 
 logger = logging.getLogger(__name__)
 
-from tests.conftest import load_baseline, make_doc
-from rag_core.chunking.text_splitter import SmartTextSplitter
-from rag_core.chunking.chunk_optimizer import ChunkOptimizer
+from tests.conftest import load_baseline, make_doc, make_optimizer, make_splitter
 from rag_core.vectorstore.pinecone_handler import PineconeInferenceUploader
 from rag_core.retrieval.retriever import EnrichedChunk, PineconeRetriever
 from rag_core.generation.llm_handler import LLMHandler, RAGPipeline
@@ -99,9 +97,9 @@ class TestChunkingPipeline:
     def test_split_et_optimize_preservent_le_contenu(self):
         # Vérifie que le texte source est bien présent dans le résultat final.
         doc = _make_full_doc()
-        splitter = SmartTextSplitter(chunk_size=200, chunk_overlap=20, strategy="recursive")
+        splitter = make_splitter(chunk_size=200, chunk_overlap=20, strategy="recursive")
         chunks = splitter.split_document(doc)
-        optimizer = ChunkOptimizer(min_chunk_size=50, max_chunk_size=500)
+        optimizer = make_optimizer(min_chunk_size=50, max_chunk_size=500)
         optimized, stats = optimizer.optimize_chunks(chunks)
 
         assert len(optimized) > 0
@@ -112,9 +110,9 @@ class TestChunkingPipeline:
     def test_chunk_ids_uniques_apres_optimisation(self):
         # L'optimiseur fait des fusions : les IDs ne doivent jamais se dupliquer.
         doc = _make_full_doc()
-        splitter = SmartTextSplitter(chunk_size=100, chunk_overlap=10, strategy="recursive")
+        splitter = make_splitter(chunk_size=100, chunk_overlap=10, strategy="recursive")
         chunks = splitter.split_document(doc)
-        optimizer = ChunkOptimizer(min_chunk_size=20)
+        optimizer = make_optimizer(min_chunk_size=20)
         optimized, _ = optimizer.optimize_chunks(chunks)
 
         ids = [c.chunk_id for c in optimized]
@@ -123,10 +121,9 @@ class TestChunkingPipeline:
     def test_chunk_index_contigu_apres_optimisation(self):
         # chunk_index doit rester une séquence 0..N-1 après réindexation.
         doc = _make_full_doc()
-        splitter = SmartTextSplitter(chunk_size=150, chunk_overlap=15, strategy="mixed")
+        splitter = make_splitter(chunk_size=150, chunk_overlap=15, strategy="mixed")
         chunks = splitter.split_document(doc)
-        optimizer = ChunkOptimizer()
-        optimized, _ = optimizer.optimize_chunks(chunks)
+        optimized, _ = make_optimizer().optimize_chunks(chunks)
 
         for i, chunk in enumerate(optimized):
             assert chunk.chunk_index == i
@@ -138,10 +135,9 @@ class TestChunkingPipeline:
         doc.metadata.title = "Titre de test"
         doc.metadata.publication_id = 42
 
-        splitter = SmartTextSplitter(chunk_size=200, chunk_overlap=20)
+        splitter = make_splitter(chunk_size=200, chunk_overlap=20)
         chunks = splitter.split_document(doc)
-        optimizer = ChunkOptimizer()
-        optimized, _ = optimizer.optimize_chunks(chunks)
+        optimized, _ = make_optimizer().optimize_chunks(chunks)
 
         for chunk in optimized:
             assert chunk.metadata.document_title == "Titre de test"
@@ -156,10 +152,9 @@ class TestJsonSerialisation:
     def test_save_et_reload_chunks(self):
         # Un aller-retour save/load doit donner le même nombre de chunks.
         doc = _make_full_doc()
-        splitter = SmartTextSplitter(chunk_size=200, chunk_overlap=20)
+        splitter = make_splitter(chunk_size=200, chunk_overlap=20)
         chunks = splitter.split_document(doc)
-        optimizer = ChunkOptimizer()
-        optimized, _ = optimizer.optimize_chunks(chunks)
+        optimized, _ = make_optimizer().optimize_chunks(chunks)
 
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
             tmp_path = f.name
@@ -180,7 +175,7 @@ class TestJsonSerialisation:
         doc.metadata.title = "Doc de test"
         doc.metadata.publication_id = 7
 
-        splitter = SmartTextSplitter(chunk_size=300, chunk_overlap=30)
+        splitter = make_splitter(chunk_size=300, chunk_overlap=30)
         chunks = splitter.split_document(doc)
 
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
@@ -425,7 +420,7 @@ class TestRAGPipelineMocked:
         }
 
         pipeline = RAGPipeline(retriever=mock_retriever, llm=mock_llm)
-        result = pipeline.ask("Qu'est-ce que ce document explique ?")
+        result = pipeline.ask("Qu'est-ce que ce document explique ?", top_k=5)
 
         mock_retriever.retrieve.assert_called_once()
         mock_llm.generate_response.assert_called_once()
@@ -439,7 +434,7 @@ class TestRAGPipelineMocked:
         mock_llm = MagicMock()
 
         pipeline = RAGPipeline(retriever=mock_retriever, llm=mock_llm)
-        result = pipeline.ask("Question sans resultats")
+        result = pipeline.ask("Question sans resultats", top_k=5)
 
         mock_llm.generate_response.assert_not_called()
         assert "pertinents" in result["response"]

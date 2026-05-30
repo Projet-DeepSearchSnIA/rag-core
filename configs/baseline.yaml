@@ -36,6 +36,14 @@ chunking:
   chunk_size: 1000
   chunk_overlap: 200
   optimizer_enabled: true
+  optimizer:
+    min_chunk_size: 100
+    max_chunk_size: 2000
+    target_chunk_size: 1000
+    merge_small_chunks: true
+    split_large_chunks: true
+    remove_duplicates: true
+    similarity_threshold: 0.9
 
 embedding:
   provider: pinecone_inference
@@ -44,6 +52,7 @@ embedding:
 vectorstore:
   cloud: aws
   region: us-east-1
+  upload_batch_size: 100
 
 retrieval:
   retrieve_k: 20

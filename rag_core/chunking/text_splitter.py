@@ -20,39 +20,31 @@ class SmartTextSplitter:
     supporte trois stratégies : recursive, semantic, mixed.
     """
 
+    _DEFAULT_SEPARATORS = [
+        "\n\n\n", "\n\n", "\n",
+        ". ", "! ", "? ", "; ", ", ",
+        " ", "",
+    ]
+
     def __init__(
         self,
-        chunk_size: int = 1000,
-        chunk_overlap: int = 200,
+        chunk_size: int,
+        chunk_overlap: int,
+        strategy: Literal["recursive", "semantic", "mixed"],
         separators: Optional[List[str]] = None,
         keep_separator: bool = True,
         length_function: callable = len,
-        strategy: Literal["recursive", "semantic", "mixed"] = "recursive"
     ):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.strategy = strategy
 
-        if separators is None:
-            separators = [
-                "\n\n\n",
-                "\n\n",
-                "\n",
-                ". ",
-                "! ",
-                "? ",
-                "; ",
-                ", ",
-                " ",
-                ""
-            ]
-
         self.splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
-            separators=separators,
+            separators=separators or self._DEFAULT_SEPARATORS,
             keep_separator=keep_separator,
-            length_function=length_function
+            length_function=length_function,
         )
 
     def split_document(self, doc: ExtractedDocument) -> List[DocumentChunk]:

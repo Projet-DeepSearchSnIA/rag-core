@@ -135,7 +135,8 @@ class PineconeInferenceUploader:
             else:
                 try:
                     sanitized[key] = json.dumps(value, ensure_ascii=False)
-                except Exception:
+                except Exception as e:
+                    logger.debug("clé '%s' non JSON-sérialisable (%s), fallback str()", key, e)
                     sanitized[key] = str(value)
         return sanitized
 
@@ -144,7 +145,7 @@ class PineconeInferenceUploader:
         flat.pop('text', None)
         return flat
 
-    def upload_chunks_from_json(self, json_path: str, batch_size: int = 100, namespace: str = "__default__"):
+    def upload_chunks_from_json(self, json_path: str, namespace: str, batch_size: int):
         logger.info("traitement: %s", Path(json_path).name)
 
         with open(json_path, 'r', encoding='utf-8') as f:
@@ -231,7 +232,7 @@ class PineconeInferenceUploader:
             'with_images': sum(1 for c in chunks if c.get('metadata', {}).get('has_images'))
         }
 
-    def upload_directory(self, chunks_dir: str, pattern: str = "*_chunks.json", namespace: str = "__default__"):
+    def upload_directory(self, chunks_dir: str, namespace: str, batch_size: int, pattern: str):
         chunks_path = Path(chunks_dir)
         files = list(chunks_path.glob(pattern))
 
@@ -245,7 +246,7 @@ class PineconeInferenceUploader:
 
         for file in files:
             try:
-                stats = self.upload_chunks_from_json(str(file), namespace=namespace)
+                stats = self.upload_chunks_from_json(str(file), namespace=namespace, batch_size=batch_size)
                 global_stats['total_chunks'] += stats['total']
                 global_stats['uploaded'] += stats['uploaded']
                 global_stats['with_formulas'] += stats['with_formulas']

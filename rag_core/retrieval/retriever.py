@@ -63,8 +63,8 @@ class PineconeRetriever:
         embed_model: str,
         rerank_model: str,
         namespace: str,
-        truncation_max_tokens: int = 200,
-        truncation_chars_per_token: int = 4
+        truncation_max_tokens: int,
+        truncation_chars_per_token: int,
     ):
         self.pc = Pinecone(api_key=api_key)
         self.index = self.pc.Index(index_name)
@@ -228,12 +228,12 @@ class PineconeRetriever:
     def retrieve(
         self,
         query: str,
-        top_k: int = 5,
-        max_k: int = 12,
-        rerank_threshold: float = 0.35,
-        retrieve_k: int = 20,
-        rerank: bool = True,
-        filter: Optional[Dict] = None
+        top_k: int,
+        max_k: int,
+        rerank_threshold: float,
+        retrieve_k: int,
+        rerank: bool,
+        filter: Optional[Dict] = None,
     ) -> List[EnrichedChunk]:
         t0 = time.time()
         logger.info("retrieval — query: %s...", query[:80])

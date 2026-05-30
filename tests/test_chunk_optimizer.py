@@ -4,13 +4,12 @@ Tests pour ChunkOptimizer — amélioration de la qualité des chunks avant l'in
 L'optimiseur fait quatre choses : supprimer les vides, dédupliquer, fusionner les petits
 et découper les grands. On teste chacune de ces passes séparément, puis le pipeline complet.
 """
-from tests.conftest import make_chunk
-from rag_core.chunking.chunk_optimizer import ChunkOptimizer
+from tests.conftest import make_chunk, make_optimizer
 
 
 def test_liste_vide_ne_plante_pas():
     """optimize_chunks sur une liste vide doit retourner ([], stats) sans exception."""
-    optimiseur = ChunkOptimizer()
+    optimiseur = make_optimizer()
     chunks, stats = optimiseur.optimize_chunks([])
     assert chunks == []
     assert "original_count" in stats
@@ -22,7 +21,7 @@ def test_chunks_vides_supprimes():
 
     En pratique ça arrive quand le splitter découpe sur un séparateur seul.
     """
-    optimiseur = ChunkOptimizer(min_chunk_size=100)
+    optimiseur = make_optimizer(min_chunk_size=100)
     chunks = [
         make_chunk(""),
         make_chunk("   "),
@@ -39,7 +38,7 @@ def test_chunks_vides_supprimes():
 
 def test_doublons_presque_identiques_supprimes():
     """Deux chunks très similaires (Jaccard ≥ 0.9) → le deuxième est supprimé."""
-    optimiseur = ChunkOptimizer(similarity_threshold=0.9, merge_small_chunks=False)
+    optimiseur = make_optimizer(similarity_threshold=0.9, merge_small_chunks=False)
     texte = "Le transformer utilise un mécanisme d'attention multi-tête pour traiter les séquences."
     chunks = [
         make_chunk(texte, document_id="doc1"),
@@ -52,7 +51,7 @@ def test_doublons_presque_identiques_supprimes():
 
 def test_doublons_textes_differents_conserves():
     """Deux chunks clairement différents doivent tous les deux être conservés."""
-    optimiseur = ChunkOptimizer(similarity_threshold=0.9, merge_small_chunks=False)
+    optimiseur = make_optimizer(similarity_threshold=0.9, merge_small_chunks=False)
     chunks = [
         make_chunk("Le transformer utilise l'attention multi-tête.", document_id="doc1"),
         make_chunk("Le BERT utilise un encodeur bidirectionnel pour les représentations.", document_id="doc1"),
@@ -63,7 +62,7 @@ def test_doublons_textes_differents_conserves():
 
 def test_petits_chunks_fusionnes():
     """Des chunks inférieurs à min_chunk_size doivent être fusionnés ensemble."""
-    optimiseur = ChunkOptimizer(
+    optimiseur = make_optimizer(
         min_chunk_size=50,
         merge_small_chunks=True,
         split_large_chunks=False,
@@ -82,7 +81,7 @@ def test_petits_chunks_fusionnes():
 
 def test_grands_chunks_decoupes():
     """Un chunk qui dépasse max_chunk_size doit être découpé en sous-chunks."""
-    optimiseur = ChunkOptimizer(
+    optimiseur = make_optimizer(
         max_chunk_size=100,
         target_chunk_size=50,
         split_large_chunks=True,
@@ -106,7 +105,7 @@ def test_chunk_avec_formule_pas_decoupe():
 
     Les formules perdent leur sens si on les coupe en milieu. C'est une règle métier importante.
     """
-    optimiseur = ChunkOptimizer(
+    optimiseur = make_optimizer(
         max_chunk_size=50,  # seuil très bas pour forcer la découpe normalement
         split_large_chunks=True,
         merge_small_chunks=False,
@@ -122,7 +121,7 @@ def test_chunk_avec_formule_pas_decoupe():
 
 def test_reindexation_apres_optimisation():
     """Après optimisation, chunk_index et total_chunks doivent être cohérents."""
-    optimiseur = ChunkOptimizer(
+    optimiseur = make_optimizer(
         merge_small_chunks=False,
         split_large_chunks=False,
         remove_duplicates=False,
@@ -146,7 +145,7 @@ def test_reindexation_apres_optimisation():
 
 def test_stats_retournees_correctes():
     """optimize_chunks doit retourner un dict stats avec les clés attendues."""
-    optimiseur = ChunkOptimizer()
+    optimiseur = make_optimizer()
     chunks = [make_chunk("Du contenu suffisamment long pour ne pas être supprimé.", document_id="doc1")]
     _, stats = optimiseur.optimize_chunks(chunks)
     assert "original_count" in stats
@@ -156,7 +155,7 @@ def test_stats_retournees_correctes():
 
 def test_analyze_chunks_cles_attendues():
     """analyze_chunks doit retourner toutes les clés de statistiques documentées."""
-    optimiseur = ChunkOptimizer()
+    optimiseur = make_optimizer()
     chunks = [
         make_chunk("Un chunk avec du contenu.", document_id="doc1"),
         make_chunk("Un autre chunk.", document_id="doc1"),
@@ -171,14 +170,14 @@ def test_analyze_chunks_cles_attendues():
 
 def test_analyze_chunks_vide():
     """analyze_chunks sur liste vide renvoie {'total': 0} sans planter."""
-    optimiseur = ChunkOptimizer()
+    optimiseur = make_optimizer()
     analyse = optimiseur.analyze_chunks([])
     assert analyse == {"total": 0}
 
 
 def test_similarite_texte_identique():
     """Deux textes identiques → similarité Jaccard = 1.0."""
-    optimiseur = ChunkOptimizer()
+    optimiseur = make_optimizer()
     texte = "le transformer est un modèle de traitement du langage naturel"
     score = optimiseur._text_similarity(texte, texte)
     assert score == 1.0
@@ -186,21 +185,21 @@ def test_similarite_texte_identique():
 
 def test_similarite_texte_sans_overlap():
     """Deux textes sans aucun mot commun → similarité = 0.0."""
-    optimiseur = ChunkOptimizer()
+    optimiseur = make_optimizer()
     score = optimiseur._text_similarity("chat chien lapin", "table chaise bureau")
     assert score == 0.0
 
 
 def test_similarite_texte_vide():
     """Quand un texte est vide, la similarité vaut 0 sans lever d'exception."""
-    optimiseur = ChunkOptimizer()
+    optimiseur = make_optimizer()
     score = optimiseur._text_similarity("", "quelque chose")
     assert score == 0.0
 
 
 def test_fusion_preserver_pages():
     """Après fusion de petits chunks, les numéros de page doivent tous être conservés."""
-    optimiseur = ChunkOptimizer(
+    optimiseur = make_optimizer(
         min_chunk_size=200,
         merge_small_chunks=True,
         split_large_chunks=False,

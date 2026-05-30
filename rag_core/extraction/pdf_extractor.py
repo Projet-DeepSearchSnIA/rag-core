@@ -467,7 +467,8 @@ class PDFExtractor:
                 row_text = " | ".join([str(cell) if cell else "" for cell in row])
                 table_text.append(row_text)
             return "\n".join(table_text)
-        except Exception:
+        except Exception as e:
+            logger.warning("extraction tableau échouée: %s", e)
             return ""
 
     def _is_likely_math_block(self, block: dict, text: str) -> bool:
@@ -522,7 +523,8 @@ class PDFExtractor:
                 ),
                 metadata={"raw_text": raw_text}
             )
-        except Exception:
+        except Exception as e:
+            logger.warning("extraction formule (page %d) échouée: %s", page_num + 1, e)
             return None
 
     def save_document(self, doc: ExtractedDocument) -> str:

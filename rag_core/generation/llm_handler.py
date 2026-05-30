@@ -150,7 +150,7 @@ class RAGPipeline:
         self.llm = llm
         logger.info("RAGPipeline initialisé")
 
-    def ask(self, question: str, top_k: int = 5, **kwargs) -> Dict:
+    def ask(self, question: str, top_k: int, **kwargs) -> Dict:
         logger.info("question RAG: %s", question)
 
         chunks = self.retriever.retrieve(query=question, top_k=top_k)
