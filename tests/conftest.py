@@ -10,10 +10,13 @@ Fixtures live (marqueur @pytest.mark.live) :
   live_retriever  — PineconeRetriever connecté à l'index réel
   live_llm        — LLMHandler connecté à HuggingFace
 """
+import logging
 import os
 import uuid
 import pytest
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -128,13 +131,25 @@ def live_retriever(pinecone_creds):
     """
     from rag_core.retrieval.retriever import PineconeRetriever
     api_key, index_name = pinecone_creds
-    embed_model = os.getenv("PINECONE_EMBED_MODEL", "multilingual-e5-large")
-    rerank_model = os.getenv("PINECONE_RERANK_MODEL", "bge-reranker-v2-m3")
+    embed_model = os.getenv("PINECONE_EMBED_MODEL")
+    rerank_model = os.getenv("PINECONE_RERANK_MODEL")
+    namespace = os.getenv("PINECONE_NAMESPACE")
+    if not embed_model:
+        logger.error("PINECONE_EMBED_MODEL absente du .env")
+        pytest.skip("PINECONE_EMBED_MODEL absente du .env")
+    if not rerank_model:
+        logger.error("PINECONE_RERANK_MODEL absente du .env")
+        pytest.skip("PINECONE_RERANK_MODEL absente du .env")
+    if not namespace:
+        logger.error("PINECONE_NAMESPACE absente du .env")
+        pytest.skip("PINECONE_NAMESPACE absente du .env")
+    assert embed_model and rerank_model and namespace
     return PineconeRetriever(
         api_key=api_key,
         index_name=index_name,
         embed_model=embed_model,
         rerank_model=rerank_model,
+        namespace=namespace,
     )
 
 
@@ -145,5 +160,9 @@ def live_llm(hf_token):
     Scope session : le client est instancié une seule fois.
     """
     from rag_core.generation.llm_handler import LLMHandler
-    model = os.getenv("LLM_MODEL", "meta-llama/Llama-3.1-8B-Instruct")
+    model = os.getenv("LLM_MODEL")
+    if not model:
+        logger.error("LLM_MODEL absente du .env")
+        pytest.skip("LLM_MODEL absente du .env")
+    assert model
     return LLMHandler(model_name=model, api_key=hf_token)

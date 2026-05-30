@@ -7,11 +7,14 @@ réellement. L'objectif est de détecter les régressions silencieuses, notammen
 la divergence du format de métadonnées entre l'upload et le retrieval.
 """
 import json
+import logging
 import os
 import tempfile
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+logger = logging.getLogger(__name__)
 
 from tests.conftest import make_doc
 from rag_core.chunking.text_splitter import SmartTextSplitter
@@ -37,19 +40,40 @@ def _make_full_doc():
 def _uploader_sans_reseau():
     # On bypasse __init__ pour ne pas ouvrir de connexion Pinecone.
     uploader = object.__new__(PineconeInferenceUploader)
-    uploader.cloud = "aws"
-    uploader.region = "us-east-1"
-    uploader.embed_model = "multilingual-e5-large"
-    uploader.index_name = "test-index"
+    cloud = os.getenv("PINECONE_CLOUD")
+    region = os.getenv("PINECONE_REGION")
+    embed_model = os.getenv("PINECONE_EMBED_MODEL")
+    index_name = os.getenv("PINECONE_INDEX_NAME")
+    if not cloud:
+        logger.warning("PINECONE_CLOUD absente du .env — requis pour les tests de contrat")
+    if not region:
+        logger.warning("PINECONE_REGION absente du .env — requis pour les tests de contrat")
+    if not embed_model:
+        logger.warning("PINECONE_EMBED_MODEL absente du .env — requis pour les tests de contrat")
+    if not index_name:
+        logger.warning("PINECONE_INDEX_NAME absente du .env — requis pour les tests de contrat")
+    uploader.cloud = cloud
+    uploader.region = region
+    uploader.embed_model = embed_model
+    uploader.index_name = index_name
     return uploader
 
 
 def _retriever_sans_reseau():
     # Même principe côté retrieval.
     retriever = object.__new__(PineconeRetriever)
-    retriever.embed_model = "multilingual-e5-large"
-    retriever.rerank_model = "bge-reranker-v2-m3"
-    retriever.namespace = "__default__"
+    embed_model = os.getenv("PINECONE_EMBED_MODEL")
+    rerank_model = os.getenv("PINECONE_RERANK_MODEL")
+    namespace = os.getenv("PINECONE_NAMESPACE")
+    if not embed_model:
+        logger.warning("PINECONE_EMBED_MODEL absente du .env — requis pour les tests de contrat")
+    if not rerank_model:
+        logger.warning("PINECONE_RERANK_MODEL absente du .env — requis pour les tests de contrat")
+    if not namespace:
+        logger.warning("PINECONE_NAMESPACE absente du .env — requis pour les tests de contrat")
+    retriever.embed_model = embed_model
+    retriever.rerank_model = rerank_model
+    retriever.namespace = namespace
     retriever.input_type = "query"
     return retriever
 
@@ -314,8 +338,12 @@ class TestLLMHandlerMocked:
 
     def _make_llm(self):
         # On patche InferenceClient à la construction pour éviter une vraie connexion.
+        model = os.getenv("LLM_MODEL")
+        if not model:
+            logger.warning("LLM_MODEL absente du .env — requis pour les tests LLM")
+            pytest.skip("LLM_MODEL absente du .env")
         with patch("rag_core.generation.llm_handler.InferenceClient"):
-            llm = LLMHandler(api_key="hf-fake-token")
+            llm = LLMHandler(model_name=model, api_key="hf-fake-token")
         llm.client = MagicMock()
         return llm
 

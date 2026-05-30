@@ -18,9 +18,9 @@ class PineconeInferenceUploader:
         self,
         api_key: str,
         index_name: str,
-        cloud: str = "aws",
-        region: str = "us-east-1",
-        embed_model: str = "multilingual-e5-large"
+        cloud: str,
+        region: str,
+        embed_model: str,
     ):
         self.pc = Pinecone(api_key=api_key)
         self.index_name = index_name

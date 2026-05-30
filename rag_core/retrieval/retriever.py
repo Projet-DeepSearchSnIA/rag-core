@@ -61,7 +61,7 @@ class PineconeRetriever:
         index_name: str,
         embed_model: str,
         rerank_model: str,
-        namespace: str = "__default__",
+        namespace: str,
         truncation_max_tokens: int = 200,
         truncation_chars_per_token: int = 4
     ):

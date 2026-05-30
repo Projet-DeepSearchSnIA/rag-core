@@ -14,7 +14,7 @@ class LLMHandler:
 
     def __init__(
         self,
-        model_name: str = "meta-llama/Llama-3.1-8B-Instruct",
+        model_name: str,
         api_key: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 1000,
