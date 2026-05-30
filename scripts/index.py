@@ -54,10 +54,13 @@ def main():
         chunks, _ = optimizer.optimize_chunks(chunks)
 
     embed_cfg = config.get("embedding", {})
+    vs_cfg = config.get("vectorstore", {})
     uploader = PineconeInferenceUploader(
         api_key=api_key,
         index_name=args.index,
-        embed_model=embed_cfg.get("model", "multilingual-e5-large")
+        embed_model=embed_cfg.get("model", "multilingual-e5-large"),
+        cloud=vs_cfg.get("cloud", "aws"),
+        region=vs_cfg.get("region", "us-east-1")
     )
 
     with tempfile.NamedTemporaryFile(suffix="_chunks.json", delete=False, mode="w", encoding="utf-8") as tmp:

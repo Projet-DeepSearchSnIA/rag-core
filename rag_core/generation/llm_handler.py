@@ -18,12 +18,16 @@ class LLMHandler:
         api_key: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 1000,
-        provider: Optional[str] = None
+        provider: Optional[str] = None,
+        max_retries: int = 3,
+        retry_delay_seconds: int = 2
     ):
         self.model_name = model_name
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.provider = provider
+        self.max_retries = max_retries
+        self.retry_delay_seconds = retry_delay_seconds
 
         if api_key is None:
             api_key = os.getenv('HF_TOKEN')
@@ -54,8 +58,8 @@ class LLMHandler:
             template=template
         )
 
-        max_retries = 3
-        retry_delay = 2
+        max_retries = self.max_retries
+        retry_delay = self.retry_delay_seconds
         response_text = ""
         t0 = time.time()
 

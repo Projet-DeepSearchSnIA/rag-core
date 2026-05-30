@@ -9,15 +9,23 @@ embedding:
   provider: pinecone_inference
   model: multilingual-e5-large
 
+vectorstore:
+  cloud: aws
+  region: us-east-1
+
 retrieval:
   retrieve_k: 20
   top_k: 5
+  max_k: 12
   rerank: true
   rerank_model: bge-reranker-v2-m3
   rerank_threshold: 0.35
+  truncation_max_tokens: 200
   truncation_chars_per_token: 4
 
 generation:
   model: meta-llama/Llama-3.1-8B-Instruct
   temperature: 0.7
   max_tokens: 1000
+  max_retries: 3
+  retry_delay_seconds: 2

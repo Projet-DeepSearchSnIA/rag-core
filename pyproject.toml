@@ -29,3 +29,12 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["rag_core*"]
+
+[tool.pytest.ini_options]
+# Par défaut, pytest ne lance QUE les tests sans marqueur (les 140 tests rapides).
+# Pour lancer les tests live : pytest -m live
+# Pour tout lancer : pytest -m "live or not live"
+addopts = "-m 'not live'"
+markers = [
+    "live: nécessite les clés API du .env (Pinecone et/ou HuggingFace) — lancement explicite uniquement",
+]

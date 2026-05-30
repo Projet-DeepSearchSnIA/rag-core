@@ -4,27 +4,8 @@ Tests pour ChunkOptimizer — amélioration de la qualité des chunks avant l'in
 L'optimiseur fait quatre choses : supprimer les vides, dédupliquer, fusionner les petits
 et découper les grands. On teste chacune de ces passes séparément, puis le pipeline complet.
 """
+from tests.conftest import make_chunk
 from rag_core.chunking.chunk_optimizer import ChunkOptimizer
-from rag_core.chunking.text_splitter import DocumentChunk
-
-
-def make_chunk(
-    content: str,
-    document_id: str = "doc-test",
-    page_numbers=None,
-    metadata=None,
-) -> DocumentChunk:
-    """Construit un DocumentChunk minimal pour tester l'optimiseur sans passer par le splitter."""
-    return DocumentChunk(
-        chunk_id=f"{document_id}_chunk_0",
-        content=content,
-        document_id=document_id,
-        document_name="doc.pdf",
-        page_numbers=page_numbers or [1],
-        chunk_index=0,
-        total_chunks=1,
-        metadata=metadata or {},
-    )
 
 
 def test_liste_vide_ne_plante_pas():

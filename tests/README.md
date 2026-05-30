@@ -37,41 +37,43 @@ pytest tests/ -m "not integration" -v
 
 ```
 tests/
-├── conftest.py              ← fixtures partagées (make_doc, make_chunk)
-├── test_extraction.py       ← schemas de données, PDFExtractor
-├── test_chunking.py         ← SmartTextSplitter, DocumentChunk
-├── test_preprocessor.py     ← TextPreprocessor (nettoyage texte)
-├── test_chunk_optimizer.py  ← ChunkOptimizer (qualité chunks)
-├── test_prompt_template.py  ← PromptTemplates, routage par type de question
-├── test_enriched_chunk.py   ← EnrichedChunk, méthodes privées PineconeRetriever
-├── test_metrics.py          ← métriques d'évaluation RAG (MRR, Recall, NDCG...)
-└── README.md                ← ce fichier
+├── conftest.py                  ← helpers partagés (make_doc, make_chunk, _retriever_vide)
+├── test_extraction.py           ← schemas de données, PDFExtractor
+├── test_chunking.py             ← SmartTextSplitter, DocumentChunk
+├── test_preprocessor.py         ← TextPreprocessor (nettoyage texte)
+├── test_chunk_optimizer.py      ← ChunkOptimizer (qualité chunks)
+├── test_retrieval.py            ← méthodes de parsing de PineconeRetriever
+├── test_retriever_methods.py    ← construction EnrichedChunk, normalisation métadonnées, format LLM
+├── test_prompt_template.py      ← PromptTemplates, routage par type de question
+├── test_metrics.py              ← métriques d'évaluation RAG (MRR, Recall, NDCG...)
+├── test_live.py                 ← tests live Pinecone + HuggingFace (@pytest.mark.live)
+└── README.md                    ← ce fichier
 ```
 
 ---
 
 ## Ce que chaque fichier teste
 
-### conftest.py — Fixtures partagées
+### conftest.py — Helpers partagés
 
-Deux fonctions utilitaires disponibles partout :
+Trois fonctions utilitaires disponibles dans tous les fichiers de test :
 
 ```python
 make_doc(pages_text: list[str]) -> ExtractedDocument
 ```
 Construit un document synthétique à partir d'une liste de textes. Chaque élément
-devient une page avec un seul bloc texte. On s'en sert pour tester le chunking
-sans avoir besoin d'un vrai PDF.
+devient une page avec un seul bloc texte. Utile pour tester le chunking sans PDF.
 
 ```python
 make_chunk(content, document_id, page_numbers, metadata) -> DocumentChunk
 ```
 Construit un chunk minimal pour tester l'optimiseur sans passer par le splitter.
 
-Trois fixtures pytest prêtes à l'emploi :
-- `doc_simple` — un document d'une page
-- `doc_multi_pages` — trois pages avec du contenu varié
-- `doc_long` — beaucoup de texte pour forcer plusieurs chunks
+```python
+_retriever_vide() -> PineconeRetriever
+```
+Crée une instance `PineconeRetriever` sans appeler `__init__` (pas de réseau).
+Sert à tester les méthodes privées du retriever en isolation.
 
 ---
 
@@ -96,8 +98,7 @@ nécessite un vrai PDF et docTR installé.
 
 ### test_chunking.py — 7 tests
 
-Teste `SmartTextSplitter` et `DocumentChunk`. La fonction helper `_make_doc` est
-définie localement dans ce fichier (et aussi dans `conftest.py` pour les autres).
+Teste `SmartTextSplitter` et `DocumentChunk`.
 
 | Test | Ce qu'on vérifie |
 |------|-----------------|
@@ -203,11 +204,11 @@ des métadonnées dans les réponses LLM) et `get_template_for_question_type`.
 
 ---
 
-### test_enriched_chunk.py — 13 tests
+### test_retriever_methods.py — 13 tests
 
-Teste `EnrichedChunk` et les méthodes privées de `PineconeRetriever` qui préparent
-les chunks. On appelle les méthodes statiques-like avec `None` comme `self` car
-elles ne lisent pas `self` (pattern déjà établi dans `test_retrieval.py`).
+Teste les méthodes de `PineconeRetriever` qui construisent et formatent les chunks
+pour le LLM : `_create_enriched_chunk`, `_normalize_metadata`, `format_for_llm`.
+Utilise `_retriever_vide()` depuis conftest pour instancier sans réseau.
 
 | Test | Ce qu'on vérifie |
 |------|-----------------|
@@ -287,15 +288,16 @@ hallucination_rate(response, context_chunks) -> float
 
 | Fichier | Tests | Modules couverts |
 |---------|-------|-----------------|
-| test_extraction.py | 8 | PDFExtractor, tous les dataclasses |
+| test_extraction.py | 8 | PDFExtractor, dataclasses |
 | test_chunking.py | 7 | SmartTextSplitter, DocumentChunk |
 | test_preprocessor.py | 14 | TextPreprocessor |
 | test_chunk_optimizer.py | 15 | ChunkOptimizer |
+| test_retrieval.py | 9 | PineconeRetriever (parsing : truncate, parse_json, parse_list) |
+| test_retriever_methods.py | 13 | PineconeRetriever (enrichissement : create_chunk, normalize, format_for_llm) |
 | test_prompt_template.py | 33 | PromptTemplates, groupement chunks, _normalize_pages, routage question |
-| test_enriched_chunk.py | 13 | EnrichedChunk, méthodes privées Retriever |
 | test_metrics.py | 23 | MRR, Recall, Precision, NDCG, faithfulness |
-| test_retrieval.py | 9 | HybridRetriever, filtres metadata, reranking |
 | **Total** | **122** | |
+| test_live.py | 13 | Pipeline complet Pinecone + HuggingFace (@pytest.mark.live) |
 
 Tous les tests s'exécutent en < 10 secondes sans réseau.
 
@@ -383,34 +385,25 @@ def test_mon_nouveau_comportement():
 
 ---
 
-## Tests d'intégration (réseau requis)
+## Tests live (réseau requis)
 
-Marqués `@pytest.mark.integration` et exclus par défaut. À lancer manuellement
-avec les bonnes variables d'environnement :
+Marqués `@pytest.mark.live` et exclus par défaut. À lancer manuellement
+avec les clés dans `.env` :
 
 ```bash
-export PINECONE_API_KEY="..."
-export HF_TOKEN="..."
-pytest tests/ -m integration -v
+# Tous les tests live
+pytest -m live -v
+
+# Seulement le retrieval
+pytest -m live -v -k "retrieval"
+
+# Pipeline complet E2E
+pytest -m live -v -k "e2e"
 ```
 
-```python
-import pytest
-import os
-
-@pytest.mark.integration
-def test_upload_et_retrieve_reel():
-    """Cycle complet upload → retrieve sur Pinecone réel."""
-    api_key = os.environ.get("PINECONE_API_KEY")
-    if not api_key:
-        pytest.skip("PINECONE_API_KEY non définie")
-    # ... test complet
-
-@pytest.mark.integration
-def test_extract_vrai_pdf():
-    """Extraction sur un vrai PDF — nécessite docTR installé (~30s)."""
-    pytest.skip("Nécessite un PDF et docTR")
-```
+Les fixtures `live_retriever` et `live_llm` dans `conftest.py` font un skip
+automatique si les clés `PINECONE_API_KEY`, `PINECONE_INDEX_NAME` ou `HF_TOKEN`
+sont absentes du `.env` — pas besoin de les gérer dans chaque test.
 
 ---
 
@@ -432,10 +425,11 @@ Les labs les importeront depuis `rag-eval` une fois ce module créé.
 ```toml
 # pyproject.toml
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+addopts = "-m 'not live'"
 markers = [
-    "integration: tests nécessitant un accès réseau ou des clés API",
-    "slow: tests longs (> 10s)",
+    "live: nécessite les clés API du .env (Pinecone et/ou HuggingFace) — lancement explicite uniquement",
 ]
-addopts = "-v --tb=short"
 ```
+
+Par défaut, `pytest` lance uniquement les 122 tests rapides sans réseau.
+`pytest -m live` pour activer les 13 tests live.
