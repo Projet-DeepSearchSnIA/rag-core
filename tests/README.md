@@ -1,159 +1,163 @@
 # Tests rag-core
 
-Ce dossier contient tous les tests unitaires du projet. L'idée c'est d'avoir
-une suite de tests rapides qu'on peut lancer avant chaque commit pour s'assurer
-qu'on n'a rien cassé. Pas de réseau, pas de clé API — juste du Python pur.
+Suite de tests pytest couvrant le pipeline RAG complet. Deux niveaux :
+
+- **Tests rapides** (152) sans réseau ni clé API — lancés par défaut, < 3 minutes
+- **Tests live** (13) qui appellent réellement Pinecone et HuggingFace — `@pytest.mark.live`, lancés explicitement
+
+Aucun test ne dépend de valeurs hardcodées : tous les modèles, dimensions et
+hyperparamètres sont lus depuis `configs/baseline.yaml` ; les secrets et
+identifiants de déploiement viennent de `.env`.
 
 ---
 
 ## Lancer les tests
 
 ```bash
-# Installer le projet en mode éditable (une seule fois)
-pip install -e ".[dev]"
-
-# Tous les tests unitaires
-pytest tests/ -v
+# Tous les tests rapides (par défaut)
+pytest tests/
 
 # Un fichier précis
-pytest tests/test_preprocessor.py -v
+pytest tests/test_chunking.py -v
 
 # Un test précis
 pytest tests/test_chunk_optimizer.py::test_grands_chunks_decoupes -v
 
-# Avec couverture de code
+# Avec couverture
 pytest tests/ --cov=rag_core --cov-report=term-missing
 
-# Tests d'intégration (réseau requis, exclus par défaut)
-pytest tests/ -m integration -v
+# Tests live uniquement (réseau requis)
+pytest tests/ -m live
 
-# Exclure les intégrations (comportement par défaut recommandé en CI)
-pytest tests/ -m "not integration" -v
+# Tout (rapides + live)
+pytest tests/ -m "live or not live"
+```
+
+Via uv :
+
+```bash
+uv run pytest tests/
 ```
 
 ---
 
-## Structure des tests
+## Structure
 
 ```
 tests/
-├── conftest.py                  ← helpers partagés (make_doc, make_chunk, _retriever_vide)
-├── test_extraction.py           ← schemas de données, PDFExtractor
-├── test_chunking.py             ← SmartTextSplitter, DocumentChunk
-├── test_preprocessor.py         ← TextPreprocessor (nettoyage texte)
-├── test_chunk_optimizer.py      ← ChunkOptimizer (qualité chunks)
-├── test_retrieval.py            ← méthodes de parsing de PineconeRetriever
-├── test_retriever_methods.py    ← construction EnrichedChunk, normalisation métadonnées, format LLM
-├── test_prompt_template.py      ← PromptTemplates, routage par type de question
-├── test_metrics.py              ← métriques d'évaluation RAG (MRR, Recall, NDCG...)
-├── test_live.py                 ← tests live Pinecone + HuggingFace (@pytest.mark.live)
-└── README.md                    ← ce fichier
+├── conftest.py                  fixtures partagées (make_doc, make_chunk, load_baseline, live_*)
+├── test_extraction.py           PDFExtractor, dataclasses d'extraction
+├── test_chunking.py             SmartTextSplitter, DocumentChunk
+├── test_chunk_optimizer.py      ChunkOptimizer (qualité chunks)
+├── test_preprocessor.py         TextPreprocessor (nettoyage texte)
+├── test_retrieval.py            PineconeRetriever (parsing JSON/CSV, truncate)
+├── test_retriever_methods.py    construction EnrichedChunk, normalisation métadonnées, format LLM
+├── test_prompt_template.py      PromptTemplates, routage par type de question
+├── test_metrics.py              métriques d'évaluation RAG (MRR, Recall, NDCG, faithfulness)
+├── test_integration.py          chaînage splitter -> optimizer -> upload -> retrieve, RAGPipeline mocké
+├── test_scripts_smoke.py        sanité du CLI unifié scripts/rag.py
+├── test_live.py                 tests live Pinecone + HuggingFace (@pytest.mark.live)
+└── README.md                    ce fichier
 ```
+
+---
+
+## Helpers (conftest.py)
+
+Quatre fonctions utilitaires disponibles dans tous les fichiers de test :
+
+```python
+make_doc(pages_text: list[str]) -> ExtractedDocument
+```
+Construit un document synthétique. Chaque string devient une page avec un seul
+bloc texte. Utile pour tester le chunking sans PDF réel.
+
+```python
+make_chunk(content, document_id, page_numbers, metadata) -> DocumentChunk
+```
+Construit un `DocumentChunk` typé avec `ChunkMetadata` reconstruit depuis le
+dict passé (via `ChunkMetadata.from_dict`). Utile pour l'optimizer en isolation.
+
+```python
+load_baseline() -> dict
+```
+Lit `configs/baseline.yaml` — source unique pour les modèles et hyperparamètres
+dans les tests.
+
+```python
+_retriever_vide() -> PineconeRetriever
+```
+Instance `PineconeRetriever` sans `__init__` (pas de réseau). Sert à tester les
+méthodes privées en isolation.
+
+Fixtures de session pour les tests live :
+
+- `pinecone_creds` — `(api_key, index_name)` depuis `.env`, skip si absent
+- `hf_token` — token HuggingFace, skip si absent
+- `baseline_cfg` — `configs/baseline.yaml` parsé, scope session
+- `live_retriever` — `PineconeRetriever` réel branché sur l'index live
+- `live_llm` — `LLMHandler` réel branché sur HuggingFace
 
 ---
 
 ## Ce que chaque fichier teste
 
-### conftest.py — Helpers partagés
-
-Trois fonctions utilitaires disponibles dans tous les fichiers de test :
-
-```python
-make_doc(pages_text: list[str]) -> ExtractedDocument
-```
-Construit un document synthétique à partir d'une liste de textes. Chaque élément
-devient une page avec un seul bloc texte. Utile pour tester le chunking sans PDF.
-
-```python
-make_chunk(content, document_id, page_numbers, metadata) -> DocumentChunk
-```
-Construit un chunk minimal pour tester l'optimiseur sans passer par le splitter.
-
-```python
-_retriever_vide() -> PineconeRetriever
-```
-Crée une instance `PineconeRetriever` sans appeler `__init__` (pas de réseau).
-Sert à tester les méthodes privées du retriever en isolation.
-
----
-
 ### test_extraction.py — 8 tests
 
-Teste les dataclasses (`ContentBlock`, `ExtractedDocument`, `BoundingBox`, `DocumentMetadata`)
-et l'initialisation de `PDFExtractor`. On ne teste pas `extract_pdf()` car ça
-nécessite un vrai PDF et docTR installé.
+Dataclasses (`ContentBlock`, `ExtractedDocument`, `BoundingBox`,
+`DocumentMetadata`) et instanciation de `PDFExtractor`. Les tests qui
+construisent un extractor passent par `load_baseline()["extraction"]` plutôt
+qu'un dict hardcodé.
 
-| Test | Ce qu'on vérifie |
-|------|-----------------|
-| `test_pdf_extractor_init_sans_callback` | `upload_callback` vaut `None` par défaut |
-| `test_pdf_extractor_init_avec_callback` | Le callback est bien conservé |
-| `test_extracted_document_create_new` | `create_new()` initialise `pages=[]` et `total_pages=0` |
-| `test_extracted_document_id_unique` | Deux docs ont des `document_id` différents (UUID) |
+| Test | Vérifie |
+|------|---------|
+| `test_pdf_extractor_init_sans_callback` | `upload_callback` vaut `None` quand non passé |
+| `test_pdf_extractor_init_avec_callback` | Le callback est conservé |
+| `test_extracted_document_create_new` | `create_new()` produit `pages=[]`, `total_pages=0` |
+| `test_extracted_document_id_unique` | Deux docs ont des UUID différents |
 | `test_content_block_optionnel` | `bbox`, `metadata`, `image_id` valent `None` par défaut |
-| `test_bounding_box` | Les coordonnées sont bien stockées |
+| `test_bounding_box` | Coordonnées stockées correctement |
 | `test_document_metadata_defaut` | `title=None`, `author=[]`, `is_public=False` |
-| `test_extractor_callback_non_appele_sans_image` | Le callback n'est pas déclenché à l'init |
+| `test_extractor_callback_non_appele_sans_image` | Callback non déclenché à l'init |
 
 ---
 
 ### test_chunking.py — 7 tests
 
-Teste `SmartTextSplitter` et `DocumentChunk`.
+`SmartTextSplitter` et `DocumentChunk` (dataclass définie dans `chunk_schemas`).
 
-| Test | Ce qu'on vérifie |
-|------|-----------------|
-| `test_chunk_document_simple` | Un texte court produit ≥ 1 chunk |
-| `test_chunk_preserve_document_id` | Tous les chunks héritent du `document_id` |
-| `test_chunk_total_chunks_coherent` | `chunk.total_chunks == len(chunks)` pour tous |
-| `test_chunk_doc_vide` | Document sans pages → liste vide |
+| Test | Vérifie |
+|------|---------|
+| `test_chunk_document_simple` | Un texte court produit au moins un chunk |
+| `test_chunk_preserve_document_id` | Tous les chunks héritent du `document_id` du doc source |
+| `test_chunk_total_chunks_coherent` | `chunk.total_chunks == len(chunks)` partout |
+| `test_chunk_doc_vide` | Document sans pages produit une liste vide |
 | `test_chunk_to_dict_complet` | `to_dict()` contient les clés attendues |
 | `test_strategy_mixed` | Stratégie `mixed` produit des chunks sans erreur |
 | `test_splitter_defaut_recursive` | Paramètres par défaut corrects |
 
 ---
 
-### test_preprocessor.py — 13 tests
+### test_chunk_optimizer.py — 15 tests
 
-Teste `TextPreprocessor` qui nettoie le texte extrait avant le chunking.
-Toutes les règles sont testées indépendamment.
+`ChunkOptimizer` : remove_empty, deduplicate, merge_small, split_large, reindex.
+Chaque passe est testée seule. Avec le passage à `ChunkMetadata` typé, l'accès
+aux flags est désormais attribut-style (`chunk.metadata.has_formulas`) plutôt
+que dict-style.
 
-| Test | Ce qu'on vérifie |
-|------|-----------------|
-| `test_blocs_vides_supprimes` | Blocs vides ou espaces seuls sont filtrés |
-| `test_normalisation_espaces_multiples` | Plusieurs espaces → un seul |
-| `test_trait_union_fin_de_ligne_colle_les_mots` | `ap-\nprentissage` → `apprentissage` |
-| `test_formule_latex_non_touchee` | Le contenu des blocs `formula` est intouché |
-| `test_guillemets_typographiques_remplaces` | `'` `'` → `'` |
-| `test_tirets_longs_remplaces` | `–` `—` → `-` |
-| `test_urls_extraites_dans_metadata` | URLs dans `block.metadata['urls']` |
-| `test_emails_extraits_dans_metadata` | Emails dans `block.metadata['emails']` |
-| `test_patrons_repetes_supprimes` | Header/footer répété > 3 fois supprimé |
-| `test_tableau_lignes_vides_supprimees` | Tables : lignes vides internes supprimées |
-| `test_sans_config_les_defauts_sont_actifs` | Toutes les règles actives par défaut |
-| `test_config_desactive_extraction_urls` | On peut désactiver via config |
-| `test_plusieurs_blocs_independants` | Plusieurs blocs valides tous retournés |
-| `test_bloc_trop_court_apres_nettoyage_supprime` | Caractères de contrôle → bloc supprimé |
-
----
-
-### test_chunk_optimizer.py — 13 tests
-
-Teste `ChunkOptimizer` qui améliore la qualité des chunks avant l'indexation.
-Chaque passe (remove_empty, deduplicate, merge_small, split_large) est testée seule.
-
-| Test | Ce qu'on vérifie |
-|------|-----------------|
-| `test_liste_vide_ne_plante_pas` | `optimize_chunks([])` → `([], stats)` sans erreur |
-| `test_chunks_vides_supprimes` | Contenu vide ou ≤ 10 chars est éliminé |
+| Test | Vérifie |
+|------|---------|
+| `test_liste_vide_ne_plante_pas` | `optimize_chunks([])` renvoie `([], stats)` |
+| `test_chunks_vides_supprimes` | Contenu vide ou ≤ 10 chars éliminé |
 | `test_doublons_presque_identiques_supprimes` | Jaccard ≥ 0.9 → dédupliqué |
-| `test_doublons_textes_differents_conserves` | Textes différents → tous conservés |
-| `test_petits_chunks_fusionnes` | Chunks < min_size sont fusionnés |
-| `test_grands_chunks_decoupes` | Chunks > max_size sont découpés |
-| `test_chunk_avec_formule_pas_decoupe` | Formules LaTeX → jamais découpées |
+| `test_doublons_textes_differents_conserves` | Textes différents → conservés |
+| `test_petits_chunks_fusionnes` | Chunks < `min_size` fusionnés |
+| `test_grands_chunks_decoupes` | Chunks > `max_size` découpés |
+| `test_chunk_avec_formule_pas_decoupe` | Chunks avec `has_formulas=True` non découpés |
 | `test_reindexation_apres_optimisation` | `chunk_index` et `total_chunks` cohérents |
-| `test_stats_retournees_correctes` | Stats dict avec les bonnes clés |
+| `test_stats_retournees_correctes` | Stats dict avec les clés attendues |
 | `test_analyze_chunks_cles_attendues` | `analyze_chunks()` retourne toutes les clés |
-| `test_analyze_chunks_vide` | `analyze_chunks([])` → `{'total': 0}` |
+| `test_analyze_chunks_vide` | `analyze_chunks([])` renvoie `{'total': 0}` |
 | `test_similarite_texte_identique` | Textes identiques → similarité = 1.0 |
 | `test_similarite_texte_sans_overlap` | Aucun mot commun → similarité = 0.0 |
 | `test_similarite_texte_vide` | Texte vide → similarité = 0.0 |
@@ -161,60 +165,48 @@ Chaque passe (remove_empty, deduplicate, merge_small, split_large) est testée s
 
 ---
 
-### test_prompt_template.py — 33 tests
+### test_preprocessor.py — 14 tests
 
-Teste `PromptTemplates` (formatage du contexte, construction des prompts, parsing
-des métadonnées dans les réponses LLM) et `get_template_for_question_type`.
+`TextPreprocessor` (nettoyage du texte extrait avant chunking). Chaque règle de
+nettoyage est testée indépendamment.
 
-| Test | Ce qu'on vérifie |
-|------|-----------------|
-| `test_format_context_contient_le_texte_du_chunk` | Texte présent dans le contexte |
-| `test_format_context_contient_le_nom_du_document` | Nom du doc dans le contexte |
-| `test_format_context_limite_max_chunks` | `max_chunks=2` → chunks surplus ignorés |
-| `test_format_context_pages_liste` | Pages de type liste formatées |
-| `test_format_context_avec_score` | `include_scores=True` → "pertinence" visible |
-| `test_build_rag_prompt_contient_la_question` | Question de l'utilisateur dans le prompt |
-| `test_build_rag_prompt_contient_le_contexte` | Contexte inclus dans le prompt |
-| `test_build_rag_prompt_template_par_defaut` | Template RAG_WITH_SOURCES utilisé par défaut |
-| `test_build_chat_messages_roles_corrects` | Messages avec rôles `system` et `user` |
-| `test_build_chat_messages_question_dans_user` | Question dans le message `user` |
-| `test_build_chat_messages_historique_inclus` | Historique inséré entre system et user |
-| `test_extraction_sources_pattern_standard` | `[Source: doc.pdf, page 3]` extrait |
-| `test_extraction_sources_plusieurs` | Plusieurs citations extraites |
-| `test_extraction_sources_aucune` | Pas de citation → liste vide |
-| `test_extraction_metadata_blocks_sources_used` | `SOURCES_USED: [...]` parsé |
-| `test_extraction_metadata_blocks_follow_up` | `FOLLOW_UP_QUESTIONS: [...]` parsé |
-| `test_extraction_metadata_blocks_clean_response` | Blocs meta supprimés de la réponse |
-| `test_template_question_comparaison` | "comparer" → template comparaison |
-| `test_template_question_explication` | "comment" → template explication |
-| `test_template_question_resume` | "résumé" → template synthèse |
-| `test_template_question_factuelle` | "qui" → template factuel |
-| `test_template_question_par_defaut` | Pas de mot-clé → RAG_WITH_SOURCES |
-| `test_format_response_with_sources_structure` | Dict avec toutes les clés attendues |
-| `test_format_context_groupe_meme_document` | Même fichier → un seul en-tête `--- Source` |
-| `test_format_context_documents_distincts` | Fichiers différents → un en-tête chacun |
-| `test_format_context_max_chunks_per_doc` | `max_chunks_per_doc=2` → 3e extrait exclu |
-| `test_normalize_pages_liste` | `[1,2,3]` → `"1, 2, 3"` |
-| `test_normalize_pages_csv_string` | `"1,2,3"` → retourné tel quel |
-| `test_normalize_pages_string_avec_crochets` | `"[1, 2]"` → `"1, 2"` (crochets retirés) |
-| `test_normalize_pages_entier` | `5` → `"5"` |
-| `test_normalize_pages_none` | `None` → `"inconnue"` |
-| `test_build_chat_messages_template_adaptatif_ajoute_style` | Template non-default → dernière ligne ajoutée au message user |
-| `test_build_chat_messages_rag_with_sources_question_inchangee` | Template RAG_WITH_SOURCES → question non modifiée |
+| Test | Vérifie |
+|------|---------|
+| `test_blocs_vides_supprimes` | Blocs vides ou espaces seuls filtrés |
+| `test_normalisation_espaces_multiples` | Plusieurs espaces deviennent un seul |
+| `test_trait_union_fin_de_ligne_colle_les_mots` | `ap-\nprentissage` → `apprentissage` |
+| `test_formule_latex_non_touchee` | Le contenu des blocs `formula` est intouché |
+| `test_guillemets_typographiques_remplaces` | Guillemets courbes normalisés |
+| `test_tirets_longs_remplaces` | `–` `—` deviennent `-` |
+| `test_urls_extraites_dans_metadata` | URLs détectées et placées dans `metadata['urls']` |
+| `test_emails_extraits_dans_metadata` | Emails détectés et placés dans `metadata['emails']` |
+| `test_patrons_repetes_supprimes` | Header/footer répété plus de 3 fois supprimé |
+| `test_tableau_lignes_vides_supprimees` | Tables : lignes vides internes supprimées |
+| `test_sans_config_les_defauts_sont_actifs` | Toutes les règles actives par défaut |
+| `test_config_desactive_extraction_urls` | Désactivation possible via config |
+| `test_plusieurs_blocs_independants` | Plusieurs blocs valides tous retournés |
+| `test_bloc_trop_court_apres_nettoyage_supprime` | Caractères de contrôle seuls → bloc supprimé |
+
+---
+
+### test_retrieval.py — 9 tests
+
+Méthodes utilitaires de `PineconeRetriever` (parsing JSON, CSV, troncature). Ces
+méthodes sont privées mais critiques car elles décident comment les
+métadonnées Pinecone sont reconstruites côté client.
 
 ---
 
 ### test_retriever_methods.py — 13 tests
 
-Teste les méthodes de `PineconeRetriever` qui construisent et formatent les chunks
-pour le LLM : `_create_enriched_chunk`, `_normalize_metadata`, `format_for_llm`.
-Utilise `_retriever_vide()` depuis conftest pour instancier sans réseau.
+Méthodes de `PineconeRetriever` qui construisent et formatent les chunks pour
+le LLM : `_create_enriched_chunk`, `_normalize_metadata`, `format_for_llm`.
 
-| Test | Ce qu'on vérifie |
-|------|-----------------|
+| Test | Vérifie |
+|------|---------|
 | `test_create_enriched_chunk_champs_de_base` | `chunk_id`, `text`, `score` corrects |
-| `test_create_enriched_chunk_formules_depuis_json` | `formulas_latex` parsé depuis JSON |
-| `test_create_enriched_chunk_images_depuis_csv` | `image_ids` parsé depuis CSV |
+| `test_create_enriched_chunk_formules_depuis_json` | `formulas_latex` parsé depuis JSON string |
+| `test_create_enriched_chunk_images_depuis_csv` | `image_ids` parsé depuis CSV string |
 | `test_create_enriched_chunk_metadata_vide` | Valeurs par défaut sans crash |
 | `test_create_enriched_chunk_rerank_score_none` | `rerank_score=None` quand absent |
 | `test_to_dict_contient_toutes_les_cles` | Toutes les clés documentées présentes |
@@ -228,26 +220,29 @@ Utilise `_retriever_vide()` depuis conftest pour instancier sans réseau.
 
 ---
 
-### test_metrics.py — 21 tests
+### test_prompt_template.py — 33 tests
 
-Définit les fonctions de métriques RAG et les teste sur des cas à résultat connu.
-Ces fonctions sont aussi la référence documentaire pour les labs d'évaluation.
+`PromptTemplates` (formatage du contexte, construction des messages chat,
+parsing des sources dans les réponses LLM) et `get_template_for_question_type`
+(routage par type de question : factuelle, comparaison, explication, synthèse).
 
-**Fonctions définies dans ce fichier :**
+Couvre le formatage du contexte (groupement par document, limite de chunks,
+inclusion ou non des scores), la construction du prompt RAG, le parsing
+post-réponse pour extraire sources et follow-ups, et le routage vers le bon
+template selon les mots-clés de la question.
 
-```python
-mrr_at_k(retrieved_ids, relevant_ids, k) -> float
-recall_at_k(retrieved_ids, relevant_ids, k) -> float
-precision_at_k(retrieved_ids, relevant_ids, k) -> float
-ndcg_at_k(retrieved_ids, relevant_ids, k) -> float
-faithfulness_score(response, context_chunks) -> float
-hallucination_rate(response, context_chunks) -> float
-```
+---
 
-**Seuils attendus dans les expériences labs :**
+### test_metrics.py — 23 tests
+
+Métriques d'évaluation RAG : `mrr_at_k`, `recall_at_k`, `precision_at_k`,
+`ndcg_at_k`, `faithfulness_score`, `hallucination_rate`. Ces fonctions
+servent de référence partagée entre les labs d'évaluation.
+
+Seuils attendus dans les expériences labs :
 
 | Métrique | Seuil minimum | Objectif cible |
-|----------|--------------|----------------|
+|----------|---------------|----------------|
 | MRR@5 | > 0.50 | > 0.75 |
 | Recall@5 | > 0.60 | > 0.85 |
 | Recall@10 | > 0.75 | > 0.90 |
@@ -256,130 +251,142 @@ hallucination_rate(response, context_chunks) -> float
 | faithfulness | > 0.80 | > 0.95 |
 | hallucination_rate | < 0.20 | < 0.05 |
 
-| Test | Ce qu'on vérifie |
-|------|-----------------|
-| `test_mrr_premier_resultat_pertinent` | Premier pertinent → MRR = 1.0 |
-| `test_mrr_deuxieme_resultat_pertinent` | Deuxième pertinent → MRR = 0.5 |
-| `test_mrr_troisieme_resultat_pertinent` | Troisième pertinent → MRR = 1/3 |
-| `test_mrr_aucun_pertinent` | Pas de pertinent → MRR = 0 |
-| `test_mrr_pertinent_hors_k` | Pertinent au-delà de k → non compté |
-| `test_mrr_plusieurs_pertinents_premier_compte` | Seul le rang du premier compte |
-| `test_recall_tous_retrouves` | Tous retrouvés → Recall = 1 |
-| `test_recall_moitie_retrouvee` | La moitié → Recall = 0.5 |
-| `test_recall_aucun_retrouve` | Rien retrouvé → Recall = 0 |
-| `test_recall_liste_vide_pertinents` | Rien attendu → Recall = 1 (convention) |
-| `test_precision_tous_pertinents` | Tous retournés pertinents → Precision = 1 |
-| `test_precision_aucun_pertinent` | Aucun pertinent → Precision = 0 |
-| `test_precision_moitie` | Un sur deux pertinent → Precision@2 = 0.5 |
-| `test_precision_k_zero` | k=0 → 0 sans division par zéro |
-| `test_ndcg_classement_parfait` | Ordre optimal → NDCG = 1 |
-| `test_ndcg_aucun_pertinent` | Aucun pertinent → NDCG = 0 |
-| `test_ndcg_ordre_degrade_moins_bon_que_parfait` | Rang 2 < rang 1 |
-| `test_ndcg_liste_vide_pertinents` | Pas de pertinent attendu → 0 |
-| `test_faithfulness_reponse_dans_contexte` | Réponse ancrée → score élevé |
-| `test_faithfulness_reponse_hors_contexte` | Réponse inventée → score bas |
-| `test_faithfulness_reponse_vide` | Réponse vide → 0 sans erreur |
-| `test_hallucination_complement_faithfulness` | `halluc + faith == 1.0` |
-| `test_hallucination_reponse_inventee` | Hallucination élevée pour réponse inventée |
+---
+
+### test_integration.py — 18 tests
+
+Tests d'intégration end-to-end avec uniquement Pinecone et HuggingFace mockés.
+Chunking, optimisation, sérialisation et préparation des métadonnées sont
+exercés réellement. L'objectif est de détecter les régressions silencieuses
+entre upload et retrieval.
+
+Quatre classes :
+
+- `TestChunkingPipeline` (4 tests) — la chaîne splitter → optimizer produit
+  des chunks cohérents : contenu préservé, IDs uniques, indices contigus,
+  métadonnées document propagées.
+- `TestJsonSerialisation` (2 tests) — l'aller-retour `save_chunks` / reload
+  donne le même nombre de chunks, et le JSON contient toutes les clés que
+  `_prepare_metadata` lit côté upload.
+- `TestMetadataContract` (4 tests) — **le test le plus important** : on
+  simule le voyage complet d'un chunk JSON via `_prepare_metadata` →
+  `_sanitize_metadata` → `_normalize_metadata` → `_create_enriched_chunk`. Si
+  ce test casse, c'est que les schémas amont et aval ont divergé.
+- `TestLLMHandlerMocked` (4 tests) — logique de génération (retry sur 502,
+  format de sortie, échec gracieux) sans appel réseau.
+- `TestRAGPipelineMocked` (4 tests) — orchestration retriever + LLM,
+  fallback si aucun chunk, validation que `(retriever=, llm=)` sont
+  keyword-only obligatoires.
+
+---
+
+### test_scripts_smoke.py — 12 tests
+
+Sanité du CLI unifié `scripts/rag.py`. Vérifie l'import, le `--help` global,
+le `--help` de chaque sous-commande (`extract`, `chunk`, `upload`, `index`,
+`retrieve`, `ask`), l'échec propre sans sous-commande, et le roundtrip
+`ExtractedDocument.to_dict() / from_dict()`.
+
+Le timeout subprocess est lu depuis `configs/baseline.yaml`
+(`tests.smoke_subprocess_timeout_seconds`) — pas hardcodé.
+
+---
+
+### test_live.py — 13 tests (@pytest.mark.live)
+
+Tests qui appellent réellement Pinecone et HuggingFace. Lancés explicitement
+avec `pytest -m live`. Skip automatique si `.env` n'a pas les clés.
+
+| Classe | Ce qui est testé |
+|--------|------------------|
+| `TestLiveRetrieval` | recherche vectorielle + rerank sur l'index réel |
+| `TestLiveGeneration` | inférence LLM réelle (Llama 3.1 via HuggingFace) |
+| `TestLiveE2E` | pipeline complet retrieve → generate, question hors-domaine, streaming |
 
 ---
 
 ## Résumé couverture
 
 | Fichier | Tests | Modules couverts |
-|---------|-------|-----------------|
-| test_extraction.py | 8 | PDFExtractor, dataclasses |
+|---------|-------|------------------|
+| test_extraction.py | 8 | PDFExtractor, dataclasses extraction |
 | test_chunking.py | 7 | SmartTextSplitter, DocumentChunk |
-| test_preprocessor.py | 14 | TextPreprocessor |
 | test_chunk_optimizer.py | 15 | ChunkOptimizer |
+| test_preprocessor.py | 14 | TextPreprocessor |
 | test_retrieval.py | 9 | PineconeRetriever (parsing : truncate, parse_json, parse_list) |
 | test_retriever_methods.py | 13 | PineconeRetriever (enrichissement : create_chunk, normalize, format_for_llm) |
-| test_prompt_template.py | 33 | PromptTemplates, groupement chunks, _normalize_pages, routage question |
+| test_prompt_template.py | 33 | PromptTemplates, groupement chunks, normalize_pages, routage question |
 | test_metrics.py | 23 | MRR, Recall, Precision, NDCG, faithfulness |
-| **Total** | **122** | |
+| test_integration.py | 18 | chaînage splitter → optimizer → upload → retrieve, RAGPipeline mocké |
+| test_scripts_smoke.py | 12 | scripts/rag.py (CLI unifiée) |
+| **Total non-live** | **152** | tous modules sauf appels réseau |
 | test_live.py | 13 | Pipeline complet Pinecone + HuggingFace (@pytest.mark.live) |
 
-Tous les tests s'exécutent en < 10 secondes sans réseau.
+Les 152 tests rapides s'exécutent sans réseau ni clé API.
 
 ---
 
-## Patterns utilisés dans les tests
+## Patterns utilisés
 
-### Appel de méthodes privées Python
+### Appel de méthodes privées sans réseau
 
-Certaines méthodes critiques sont privées (`_parse_json_field`, `_truncate_for_rerank`,
-etc.). On les teste directement en passant `None` comme `self` quand elles ne lisent
-pas d'attributs d'instance :
-
-```python
-result = PineconeRetriever._truncate_for_rerank(None, "texte long", max_tokens=200)
-```
-
-C'est acceptable ici parce que ces méthodes encapsulent de la logique critique
-(ratio tokens/chars, parsing JSON) qu'on ne peut pas tester autrement sans un vrai
-index Pinecone.
+Certaines méthodes critiques sont privées (`_parse_json_field`,
+`_truncate_for_rerank`, etc.). On les teste directement en bypassant `__init__`
+via `object.__new__(PineconeRetriever)`, parce que ces méthodes encapsulent
+de la logique critique (ratio tokens/chars, parsing JSON) qu'on ne peut pas
+tester autrement sans un vrai index Pinecone.
 
 ### Construire un document synthétique
 
 ```python
-from conftest import make_doc
+from tests.conftest import make_doc
 
 doc = make_doc(["Paragraphe 1.", "Paragraphe 2.", "Conclusion."])
 ```
 
-Chaque string devient une page. Utile pour tester le chunking sans PDF.
-
-### Construire un chunk synthétique
+### Construire un chunk synthétique avec métadonnées typées
 
 ```python
-from conftest import make_chunk
+from tests.conftest import make_chunk
 
 chunk = make_chunk(
     "Contenu du chunk.",
     document_id="mon-doc",
     page_numbers=[1, 2],
-    metadata={"has_formulas": True}
+    metadata={"has_formulas": True, "section_title": "Introduction"},
 )
+# chunk.metadata est un ChunkMetadata, pas un dict
 ```
 
-Utile pour tester l'optimiseur en isolation.
-
-### Simuler un chunk Pinecone (dict)
+### Charger la config baseline dans un test
 
 ```python
-chunk_dict = {
-    "text": "L'attention multi-tête...",
-    "score": 0.9,
-    "metadata": {"document_name": "paper.pdf", "page_numbers": [3]},
-}
-```
+from tests.conftest import load_baseline
 
-`PromptTemplates.format_context()` accepte des dicts comme des objets — les deux
-formats sont testés.
+cfg = load_baseline()
+extractor = PDFExtractor(config=cfg["extraction"])
+```
 
 ---
 
 ## Ajouter un nouveau test
 
-Checklist rapide avant de committer :
+Checklist :
 
-- Le test passe sans réseau ni clé API
-- Le nom du test décrit ce qui est vérifié (pas comment)
-- Si réseau requis → `@pytest.mark.integration`
-- Utilise `make_doc()` pour les fixtures de chunking
-- Pas de `print()` → utiliser `assert` avec un message d'erreur clair
+- Le test passe sans réseau ni clé API (sinon `@pytest.mark.live`)
+- Le nom décrit ce qui est vérifié, pas comment
+- Utilise `make_doc()` / `make_chunk()` pour les fixtures
+- Aucun défaut hardcodé : lit depuis `load_baseline()` ou `os.getenv()`
+- Pas de `print()` — `logger.warning()` ou `assert` avec message clair
 
 ```python
 def test_mon_nouveau_comportement():
     """Une phrase qui explique POURQUOI ce comportement est important."""
-    # setup
     doc = make_doc(["Contenu de test."])
-    splitter = SmartTextSplitter(chunk_size=500)
+    splitter = SmartTextSplitter(chunk_size=500, chunk_overlap=0, strategy="recursive")
 
-    # action
     chunks = splitter.split_document(doc)
 
-    # assertion avec message d'erreur utile
     assert len(chunks) >= 1, "Un document non-vide doit produire au moins un chunk"
 ```
 
@@ -387,36 +394,34 @@ def test_mon_nouveau_comportement():
 
 ## Tests live (réseau requis)
 
-Marqués `@pytest.mark.live` et exclus par défaut. À lancer manuellement
-avec les clés dans `.env` :
+Marqués `@pytest.mark.live` et exclus par défaut. Lancement manuel :
 
 ```bash
-# Tous les tests live
 pytest -m live -v
 
 # Seulement le retrieval
-pytest -m live -v -k "retrieval"
+pytest -m live -v -k retrieval
 
-# Pipeline complet E2E
-pytest -m live -v -k "e2e"
+# Pipeline complet
+pytest -m live -v -k e2e
 ```
 
-Les fixtures `live_retriever` et `live_llm` dans `conftest.py` font un skip
-automatique si les clés `PINECONE_API_KEY`, `PINECONE_INDEX_NAME` ou `HF_TOKEN`
-sont absentes du `.env` — pas besoin de les gérer dans chaque test.
+Les fixtures `live_retriever` et `live_llm` font un skip automatique si les
+clés `PINECONE_API_KEY`, `PINECONE_INDEX_NAME` ou `HF_TOKEN` sont absentes
+du `.env`, donc pas besoin de les gérer dans chaque test.
 
 ---
 
 ## Lien avec les labs
 
 ```
-rag-core/tests/          ← invariants : "le code fait ce qu'il dit"
-lab-retrieval/eval/      ← performance : "le système est-il bon ?"
-rag-eval/metrics/        ← fonctions de métriques partagées entre labs
+rag-core/tests/          invariants : "le code fait ce qu'il dit"
+lab-retrieval/eval/      performance : "le système est-il bon ?"
+rag-eval/metrics/        fonctions de métriques partagées entre labs
 ```
 
-Les métriques dans `test_metrics.py` sont la version de référence.
-Les labs les importeront depuis `rag-eval` une fois ce module créé.
+Les métriques dans `test_metrics.py` sont la version de référence. Les labs
+les importeront depuis `rag-eval` une fois ce module créé.
 
 ---
 
@@ -427,9 +432,9 @@ Les labs les importeront depuis `rag-eval` une fois ce module créé.
 [tool.pytest.ini_options]
 addopts = "-m 'not live'"
 markers = [
-    "live: nécessite les clés API du .env (Pinecone et/ou HuggingFace) — lancement explicite uniquement",
+    "live: nécessite les clés API du .env (Pinecone et/ou HuggingFace)",
 ]
 ```
 
-Par défaut, `pytest` lance uniquement les 122 tests rapides sans réseau.
+Par défaut, `pytest` lance uniquement les 152 tests rapides sans réseau.
 `pytest -m live` pour activer les 13 tests live.
